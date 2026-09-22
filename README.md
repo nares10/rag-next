@@ -88,16 +88,7 @@ Open [http://localhost:3000](http://localhost:3000).
 Tests run against a separate database whose `DATABASE_URL` must contain `test` in the
 database name (a safety check to prevent wiping real data).
 
-Create a `.env.test` file:
-
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/myapp_test"
-```
-
-Then run:
-
-```bash
-bun run test:db      # deploy migrations to the test DB, then run the test suite
 bun test             # run tests without the migration step
 bun run test:watch   # watch mode
 ```
