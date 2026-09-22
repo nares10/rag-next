@@ -30,7 +30,7 @@ See `features.md` for the full list and what's still in progress.
 ## 1. Clone and install
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/nares10/aiChat
 cd ai-chat
 bun install
 ```
@@ -40,11 +40,16 @@ bun install
 Create a `.env` file in the project root:
 
 ```bash
-# Required — PostgreSQL connection string
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/myapp"
+DATABASE_URL=<your db connection string>
+TEST_DATABASE_URL=<your test db connection string>
 
-# Required to send emails (e.g. email verification). Get a key from https://resend.com
-RESEND_API_KEY="your-resend-api-key"
+OPENROUTER_API_KEY=<your openrouter api key>
+OPENROUTER_MODEL=<openrouter model>
+
+OPENAI_API_KEY=<your openai api key>
+OPENAI_MODEL=<openai model>
+
+AI_PROVIDER=openroute
 ```
 
 `.env*` files are git-ignored — never commit real credentials.
