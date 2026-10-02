@@ -69,8 +69,10 @@
 - Keep uploaded files (or upload straight to storage) so a failed file can be retried from
   any device, not only the tab that uploaded it
 - RAG: direct-to-storage upload, to lift the 4 MB file limit to the pipeline's 20 MB
-- RAG: record an eval baseline with real embeddings, then tune chunk size and the
-  similarity floor against it (`bun run eval --embedder=gemini --record`)
+- RAG: the similarity floor (`MIN_SIMILARITY` in `lib/rag/retrieve.ts`) is too permissive
+  for real embedding models — the Gemini eval baseline scores 0% abstention, so
+  out-of-domain questions still retrieve six passages. Measure the in-domain vs
+  out-of-domain similarity gap, move the floor into it, and re-record the baseline.
 - Add message search functionality
 - i w
 - Containerise the application using Docker
