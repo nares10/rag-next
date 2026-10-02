@@ -15,7 +15,7 @@ interface DocumentsDrawerProps {
   onSelectCollection: (collectionId: string | null) => void;
   onCreateCollection: (name: string) => void;
   onDeleteCollection: (collectionId: string) => void;
-  onAddDocument: (input: { text?: string; sourceUri?: string; title?: string }) => void;
+  onAddDocument: (input: { text?: string; sourceUri?: string; title?: string; file?: File }) => void;
   onDeleteDocument: (documentId: string) => void;
   onRetryDocument: (documentId: string) => void;
   onAttach: (collectionId: string | null) => void;
@@ -56,7 +56,8 @@ export default function DocumentsDrawer({
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [sourceUri, setSourceUri] = useState("");
-  const [mode, setMode] = useState<"paste" | "url">("paste");
+  const [file, setFile] = useState<File | null>(null);
+  const [mode, setMode] = useState<"paste" | "url" | "file">("paste");
 
   if (!isOpen) return null;
 
@@ -66,7 +67,11 @@ export default function DocumentsDrawer({
   const submitDocument = () => {
     if (!activeCollectionId) return;
 
-    if (mode === "url") {
+    if (mode === "file") {
+      if (!file) return;
+      onAddDocument({ file, title: title.trim() || undefined });
+      setFile(null);
+    } else if (mode === "url") {
       if (!sourceUri.trim()) return;
       onAddDocument({ sourceUri: sourceUri.trim(), title: title.trim() || undefined });
       setSourceUri("");
@@ -78,6 +83,9 @@ export default function DocumentsDrawer({
 
     setTitle("");
   };
+
+  const canSubmit =
+    mode === "file" ? file !== null : mode === "url" ? sourceUri.trim() !== "" : text.trim() !== "";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
@@ -227,7 +235,7 @@ export default function DocumentsDrawer({
 
             <section className="mt-6">
               <div className="flex gap-2">
-                {(["paste", "url"] as const).map((option) => (
+                {(["paste", "url", "file"] as const).map((option) => (
                   <button
                     key={option}
                     type="button"
@@ -238,7 +246,7 @@ export default function DocumentsDrawer({
                         : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
                     }`}
                   >
-                    {option === "paste" ? "Paste text" : "From URL"}
+                    {option === "paste" ? "Paste text" : option === "url" ? "From URL" : "Upload file"}
                   </button>
                 ))}
               </div>
@@ -250,7 +258,7 @@ export default function DocumentsDrawer({
                 className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500 outline-none"
               />
 
-              {mode === "paste" ? (
+              {mode === "paste" && (
                 <textarea
                   value={text}
                   onChange={(event) => setText(event.target.value)}
@@ -258,7 +266,9 @@ export default function DocumentsDrawer({
                   placeholder="Paste markdown or plain text..."
                   className="mt-2 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500 outline-none"
                 />
-              ) : (
+              )}
+
+              {mode === "url" && (
                 <input
                   value={sourceUri}
                   onChange={(event) => setSourceUri(event.target.value)}
@@ -267,9 +277,18 @@ export default function DocumentsDrawer({
                 />
               )}
 
+              {mode === "file" && (
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 outline-none file:mr-3 file:rounded-md file:border-0 file:bg-zinc-800 file:px-3 file:py-1.5 file:text-xs file:text-zinc-200"
+                />
+              )}
+
               <button
                 type="button"
-                disabled={isBusy}
+                disabled={isBusy || !canSubmit}
                 onClick={submitDocument}
                 className="mt-2 w-full rounded-lg bg-white px-3 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 disabled:opacity-50"
               >
@@ -277,8 +296,8 @@ export default function DocumentsDrawer({
               </button>
 
               <p className="mt-2 text-xs text-zinc-500">
-                Plain text, markdown and HTML pages are supported. PDF and Word files are not read by this
-                server yet.
+                PDF, Word (.docx), markdown, plain text and HTML pages. Uploads are limited to 4 MB;
+                larger documents can be added by URL.
               </p>
             </section>
           </>

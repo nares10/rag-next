@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeText } from "../../lib/rag/normalize";
+import { normalizeText, stripRepeatedPageLines } from "../../lib/rag/normalize";
 
 describe("normalizeText", () => {
   it("normalizes windows line endings to unix", () => {
@@ -33,5 +33,62 @@ describe("normalizeText", () => {
 
   it("preserves markdown heading markers", () => {
     expect(normalizeText("## Section  \n\nBody text")).toBe("## Section\n\nBody text");
+  });
+});
+
+describe("stripRepeatedPageLines", () => {
+  const pages = (bodies: string[]) => bodies.map((body) => body.trim());
+
+  it("removes a running header that appears on every page", () => {
+    const input = pages([
+      "ACME Internal\nExpenses\nReceipts within 30 days.",
+      "ACME Internal\nTravel\nEconomy by default.",
+      "ACME Internal\nLeave\nTwenty five days a year.",
+    ]);
+
+    const result = stripRepeatedPageLines(input);
+
+    expect(result.every((page) => !page.includes("ACME Internal"))).toBe(true);
+    expect(result[0]).toContain("Receipts within 30 days.");
+  });
+
+  it("removes a running footer too", () => {
+    const input = pages([
+      "Expenses\nReceipts within 30 days.\nConfidential",
+      "Travel\nEconomy by default.\nConfidential",
+      "Leave\nTwenty five days a year.\nConfidential",
+    ]);
+
+    expect(stripRepeatedPageLines(input).every((page) => !page.includes("Confidential"))).toBe(true);
+  });
+
+  it("keeps a line that only appears on some pages", () => {
+    const input = pages([
+      "Expenses\nReceipts within 30 days.",
+      "Travel\nReceipts within 30 days.",
+      "Leave\nTwenty five days a year.",
+    ]);
+
+    const result = stripRepeatedPageLines(input);
+
+    expect(result[0]).toContain("Receipts within 30 days.");
+  });
+
+  it("leaves a two-page document alone, where every line looks repeated", () => {
+    const input = pages(["Shared\nFirst", "Shared\nSecond"]);
+
+    expect(stripRepeatedPageLines(input)).toEqual(input);
+  });
+
+  it("ignores page numbers that differ, which is what makes them hard to strip", () => {
+    const input = pages(["Body one\nPage 1", "Body two\nPage 2", "Body three\nPage 3"]);
+
+    const result = stripRepeatedPageLines(input);
+
+    expect(result[0]).toContain("Body one");
+  });
+
+  it("returns a single page untouched", () => {
+    expect(stripRepeatedPageLines(["Only page"])).toEqual(["Only page"]);
   });
 });

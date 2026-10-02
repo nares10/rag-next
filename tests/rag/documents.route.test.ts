@@ -85,7 +85,7 @@ describe("POST /api/rag/documents", () => {
     expect(response.status).toBe(400);
   });
 
-  it("rejects a file source, pointing at the supported alternatives", async () => {
+  it("400s on a file source sent as JSON rather than multipart", async () => {
     const { user, headers } = await createAuthedUser("doc-file@example.com");
     const collection = await createTestCollection(user.id);
 
@@ -97,7 +97,7 @@ describe("POST /api/rag/documents", () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toMatch(/paste|URL/i);
+    expect(data.error).toMatch(/multipart/i);
   });
 
   it("415s on a mime type it cannot read", async () => {
@@ -107,10 +107,26 @@ describe("POST /api/rag/documents", () => {
     const response = await fetch(url(), {
       method: "POST",
       headers,
-      body: JSON.stringify({ collectionId: collection.id, text: "%PDF", mimeType: "application/pdf" }),
+      body: JSON.stringify({ collectionId: collection.id, text: "binary", mimeType: "image/png" }),
     });
 
     expect(response.status).toBe(415);
+  });
+
+  it("415s on a PDF pasted as text, telling the user to upload it instead", async () => {
+    const { user, headers } = await createAuthedUser("doc-paste-pdf@example.com");
+    const collection = await createTestCollection(user.id);
+
+    const response = await fetch(url(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ collectionId: collection.id, text: "%PDF-1.4", mimeType: "application/pdf" }),
+    });
+    const data = await response.json();
+
+    expect(response.status).toBe(415);
+    expect(data.error).toMatch(/upload/i);
+    expect(await prisma.document.count()).toBe(0);
   });
 
   it("400s on a sourceUri that is not an http url", async () => {
@@ -184,6 +200,161 @@ describe("POST /api/rag/documents", () => {
     expect(processed?.status).toBe("ready");
     expect(processed?.chunkCount).toBeGreaterThan(0);
     expect(await prisma.chunk.count({ where: { documentId: document.id } })).toBe(processed?.chunkCount);
+  });
+});
+
+describe("POST /api/rag/documents with a file", () => {
+  beforeEach(async () => {
+    await resetTestDatabase();
+  });
+
+  async function upload(
+    headers: HeadersInit,
+    file: File,
+    fields: Record<string, string> = {},
+  ) {
+    const form = new FormData();
+    form.set("file", file);
+    for (const [key, value] of Object.entries(fields)) form.set(key, value);
+
+    // Only the cookie: fetch sets the multipart content-type with its boundary.
+    const cookie = (headers as Record<string, string>).Cookie;
+
+    return fetch(url(), { method: "POST", headers: { Cookie: cookie }, body: form });
+  }
+
+  const fixture = async (path: string, name: string, type: string) =>
+    new File([await Bun.file(path).arrayBuffer()], name, { type });
+
+  it("401s without a session", async () => {
+    const form = new FormData();
+    form.set("file", new File(["hello"], "a.txt", { type: "text/plain" }));
+
+    expect((await fetch(url(), { method: "POST", body: form })).status).toBe(401);
+  });
+
+  it("accepts a PDF, titling the document after the file", async () => {
+    const { user, headers } = await createAuthedUser("upload-pdf@example.com");
+    const collection = await createTestCollection(user.id);
+
+    const response = await upload(
+      headers,
+      await fixture("tests/fixtures/handbook.pdf", "handbook.pdf", "application/pdf"),
+      { collectionId: collection.id },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(data.document.sourceType).toBe("file");
+    expect(data.document.mimeType).toBe("application/pdf");
+    expect(data.document.title).toBe("handbook.pdf");
+    expect(data.document.byteSize).toBeGreaterThan(0);
+  });
+
+  it("processes an uploaded PDF in the background, down to page numbers", async () => {
+    const { user, headers } = await createAuthedUser("upload-pdf-bg@example.com");
+    const collection = await createTestCollection(user.id);
+
+    const response = await upload(
+      headers,
+      await fixture("tests/fixtures/handbook.pdf", "handbook.pdf", "application/pdf"),
+      { collectionId: collection.id },
+    );
+    const { document } = await response.json();
+    const processed = await waitForTerminalStatus(document.id);
+
+    expect(processed?.status).toBe("ready");
+    expect(processed?.pageCount).toBe(2);
+    const chunks = await prisma.chunk.findMany({ where: { documentId: document.id } });
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.every((chunk) => chunk.page !== null)).toBe(true);
+  });
+
+  it("accepts a Word document", async () => {
+    const { user, headers } = await createAuthedUser("upload-docx@example.com");
+    const collection = await createTestCollection(user.id);
+
+    const response = await upload(
+      headers,
+      await fixture(
+        "tests/fixtures/remote-work.docx",
+        "remote-work.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+      { collectionId: collection.id },
+    );
+    const { document } = await response.json();
+    const processed = await waitForTerminalStatus(document.id);
+
+    expect(processed?.status).toBe("ready");
+    const chunks = await prisma.chunk.findMany({ where: { documentId: document.id } });
+    expect(chunks.some((chunk) => chunk.heading === "Equipment")).toBe(true);
+  });
+
+  it("falls back to the file extension when the browser sends no type", async () => {
+    const { user, headers } = await createAuthedUser("upload-notype@example.com");
+    const collection = await createTestCollection(user.id);
+
+    const response = await upload(headers, new File(["# Notes\n\nBody text."], "notes.md", { type: "" }), {
+      collectionId: collection.id,
+    });
+    const data = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(data.document.mimeType).toBe("text/markdown");
+  });
+
+  it("415s on a file type it cannot read", async () => {
+    const { user, headers } = await createAuthedUser("upload-png@example.com");
+    const collection = await createTestCollection(user.id);
+
+    const response = await upload(headers, new File(["\u0089PNG"], "logo.png", { type: "image/png" }), {
+      collectionId: collection.id,
+    });
+
+    expect(response.status).toBe(415);
+    expect(await prisma.document.count()).toBe(0);
+  });
+
+  it("413s on a file past the upload limit", async () => {
+    const { user, headers } = await createAuthedUser("upload-big@example.com");
+    const collection = await createTestCollection(user.id);
+    const big = new File([new Uint8Array(5 * 1024 * 1024)], "big.pdf", { type: "application/pdf" });
+
+    const response = await upload(headers, big, { collectionId: collection.id });
+
+    expect(response.status).toBe(413);
+    expect(await prisma.document.count()).toBe(0);
+  });
+
+  it("404s for a collection owned by another user", async () => {
+    const { user: owner } = await createAuthedUser("upload-victim@example.com");
+    const { headers } = await createAuthedUser("upload-attacker@example.com");
+    const collection = await createTestCollection(owner.id);
+
+    const response = await upload(
+      headers,
+      await fixture("tests/fixtures/handbook.pdf", "handbook.pdf", "application/pdf"),
+      { collectionId: collection.id },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await prisma.document.count()).toBe(0);
+  });
+
+  it("400s when no file is attached", async () => {
+    const { user, headers } = await createAuthedUser("upload-nofile@example.com");
+    const collection = await createTestCollection(user.id);
+    const form = new FormData();
+    form.set("collectionId", collection.id);
+
+    const response = await fetch(url(), {
+      method: "POST",
+      headers: { Cookie: (headers as Record<string, string>).Cookie },
+      body: form,
+    });
+
+    expect(response.status).toBe(400);
   });
 });
 

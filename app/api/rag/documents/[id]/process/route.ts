@@ -35,12 +35,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
-    // A pasted document's text only ever existed in the original request body, so there is
-    // nothing to re-read: only URL sources can genuinely be retried. Mark it failed on the
-    // way out, so a document whose background run never completed stops being polled as
-    // "Queued" forever.
-    if (existing.sourceType === "paste" && existing.status !== "ready") {
-      const error = "Pasted text cannot be reprocessed. Paste it again.";
+    // Pasted text and uploaded files only ever existed in the original request body, so
+    // there is nothing to re-read: only URL sources can genuinely be retried. Mark it
+    // failed on the way out, so a document whose background run never completed stops
+    // being polled as "Queued" forever.
+    if (existing.sourceType !== "url" && existing.status !== "ready") {
+      const error =
+        existing.sourceType === "file"
+          ? "The uploaded file is not kept on the server. Upload it again."
+          : "Pasted text cannot be reprocessed. Paste it again.";
 
       await prisma.document.update({
         where: { id },

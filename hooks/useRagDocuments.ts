@@ -8,6 +8,15 @@ const MAX_POLLS = 150;
 const isTerminal = (document: RagDocument) =>
   document.status === "ready" || document.status === "failed";
 
+function fileBody(collectionId: string, file: File, title?: string): FormData {
+	const form = new FormData();
+	form.set("collectionId", collectionId);
+	form.set("file", file);
+	if (title) form.set("title", title);
+
+	return form;
+}
+
 /**
  * Collections and their documents for the signed-in user.
  *
@@ -128,20 +137,26 @@ export function useRagDocuments(user: ChatUser | null) {
 
 	const addDocument = async (
 		collectionId: string,
-		input: { text?: string; sourceUri?: string; title?: string },
+		input: { text?: string; sourceUri?: string; title?: string; file?: File },
 	) => {
 		setError(null);
 		setIsLoading(true);
 
 		try {
+			// A file goes as multipart/form-data; the browser sets the boundary itself, so
+			// the Content-Type header must not be set by hand here.
 			const response = await fetch("/api/rag/documents", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(
-					input.sourceUri
-						? { collectionId, sourceType: "url", sourceUri: input.sourceUri, title: input.title }
-						: { collectionId, sourceType: "paste", text: input.text, title: input.title },
-				),
+				...(input.file
+					? { body: fileBody(collectionId, input.file, input.title) }
+					: {
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify(
+								input.sourceUri
+									? { collectionId, sourceType: "url", sourceUri: input.sourceUri, title: input.title }
+									: { collectionId, sourceType: "paste", text: input.text, title: input.title },
+							),
+						}),
 			});
 
 			if (!response.ok) {

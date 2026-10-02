@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { prisma as defaultPrisma } from "../prisma";
 import { CHUNK_DEFAULTS, type ChunkDraft, type ChunkOptions, chunkText } from "./chunk";
 import { EMBEDDING_MODEL, type Embedder } from "./embed";
-import { UnsupportedSourceError, extractText } from "./extract";
+import { ExtractionError, type ExtractedSource, UnsupportedSourceError, extractSource } from "./extract";
+import { stripRepeatedPageLines } from "./normalize";
 import { UnsafeUrlError, assertFetchableUrl, type Lookup } from "./url-guard";
 
 /** Per-document ceiling. A runaway source would otherwise burn the user's whole quota. */
@@ -24,8 +25,11 @@ export type IngestResult = {
 
 export type IngestOptions = {
   documentId: string;
-  /** Source text for pasted documents. URL documents are fetched from `sourceUri` instead. */
-  raw?: string;
+  /**
+   * The source itself, for documents whose bytes arrived with the request (pasted text,
+   * an uploaded file). URL documents are fetched from `sourceUri` instead.
+   */
+  raw?: string | Uint8Array;
   embed: Embedder;
   embeddingModel?: string;
   chunkOptions?: ChunkOptions;
@@ -80,7 +84,10 @@ export async function ingestDocument(options: IngestOptions): Promise<IngestResu
     const source = raw ?? fetched!.body;
     // For a fetched URL the server's own Content-Type beats the one guessed at submission
     // time: a .txt or .md page run through the HTML extractor loses every <bracketed> word.
-    const text = extractText(fetched?.mimeType ?? document.mimeType, source);
+    // Measured before extraction: a parser is free to consume what it is handed.
+    const sourceBytes = byteLength(source);
+    const extracted = await extractSource(fetched?.mimeType ?? document.mimeType, source);
+    const { text } = extracted;
 
     if (!text) throw new IngestError("The source contains no readable text.");
 
@@ -103,7 +110,7 @@ export async function ingestDocument(options: IngestOptions): Promise<IngestResu
       return { status: "duplicate", chunkCount: 0, duplicateOf: duplicate.id };
     }
 
-    const drafts = chunkText(text, { ...CHUNK_DEFAULTS, ...chunkOptions });
+    const drafts = chunkExtracted(extracted, { ...CHUNK_DEFAULTS, ...chunkOptions });
 
     if (drafts.length === 0) throw new IngestError("The source contains no readable text.");
     if (drafts.length > maxChunks) {
@@ -126,7 +133,8 @@ export async function ingestDocument(options: IngestOptions): Promise<IngestResu
         error: null,
         chunkCount: drafts.length,
         contentHash,
-        byteSize: Buffer.byteLength(source),
+        pageCount: extracted.pageCount ?? null,
+        byteSize: sourceBytes,
       },
     });
 
@@ -144,6 +152,40 @@ export async function ingestDocument(options: IngestOptions): Promise<IngestResu
   }
 }
 
+type PagedDraft = ChunkDraft & { page: number | null };
+
+/**
+ * Chunks the extracted source, page by page where the format has pages.
+ *
+ * Chunking each page separately is what lets a citation say "p.12": a chunk that spanned
+ * a page break could not name one page honestly. Ordinals are renumbered across the whole
+ * document afterwards so they stay unique and in reading order.
+ */
+function chunkExtracted(extracted: ExtractedSource, options: ChunkOptions): PagedDraft[] {
+  if (!extracted.pages || extracted.pages.length === 0) {
+    return chunkText(extracted.text, options).map((draft) => ({ ...draft, page: null }));
+  }
+
+  const pages = stripRepeatedPageLines(extracted.pages);
+  const drafts: PagedDraft[] = [];
+  // A heading on one page introduces the pages that follow it, so it carries over until
+  // the next heading rather than resetting at the page break.
+  let carriedHeading: string | null = null;
+
+  for (const [index, page] of pages.entries()) {
+    for (const draft of chunkText(page, options)) {
+      carriedHeading = draft.heading ?? carriedHeading;
+      drafts.push({ ...draft, heading: carriedHeading, page: index + 1 });
+    }
+  }
+
+  return drafts.map((draft, ordinal) => ({ ...draft, ordinal }));
+}
+
+function byteLength(source: string | Uint8Array): number {
+  return typeof source === "string" ? Buffer.byteLength(source) : source.byteLength;
+}
+
 /**
  * What actually gets embedded. The breadcrumb gives an otherwise context-free passage its
  * subject back ("within 30 days" means nothing without "Expenses"), and it is prepended
@@ -158,7 +200,7 @@ export function embeddingInput(title: string, draft: ChunkDraft): string {
 async function writeChunks(
   prisma: typeof defaultPrisma,
   context: { documentId: string; collectionId: string; embeddingModel: string },
-  drafts: ChunkDraft[],
+  drafts: PagedDraft[],
   vectors: number[][],
 ): Promise<void> {
   for (let start = 0; start < drafts.length; start += UPSERT_BATCH) {
@@ -172,12 +214,13 @@ async function writeChunks(
           INSERT INTO "Chunk" ("id", "documentId", "collectionId", "ordinal", "content",
                                "tokenCount", "page", "heading", "embedding", "embeddingModel")
           VALUES (${crypto.randomUUID()}, ${context.documentId}, ${context.collectionId},
-                  ${draft.ordinal}, ${draft.content}, ${draft.tokenCount}, ${null},
+                  ${draft.ordinal}, ${draft.content}, ${draft.tokenCount}, ${draft.page},
                   ${draft.heading}, ${vector}::vector, ${context.embeddingModel})
           ON CONFLICT ("documentId", "ordinal") DO UPDATE
             SET "content" = EXCLUDED."content",
                 "tokenCount" = EXCLUDED."tokenCount",
                 "heading" = EXCLUDED."heading",
+                "page" = EXCLUDED."page",
                 "embedding" = EXCLUDED."embedding",
                 "embeddingModel" = EXCLUDED."embeddingModel"
         `;
@@ -190,7 +233,7 @@ async function fetchSource(
   document: { sourceType: string; sourceUri: string | null; mimeType: string },
   fetchImpl: typeof fetch,
   lookup?: Lookup,
-): Promise<{ body: string; mimeType: string }> {
+): Promise<{ body: Uint8Array; mimeType: string }> {
   if (document.sourceType !== "url" || !document.sourceUri) {
     throw new IngestError(
       `Cannot read a ${document.sourceType} source on this server. Paste the text or supply a URL instead.`,
@@ -233,20 +276,22 @@ async function fetchSource(
 /**
  * Reads the body while counting bytes, so an oversized or endless response is abandoned
  * mid-flight. Buffering first and measuring afterwards would let one URL exhaust memory.
+ *
+ * Returns bytes rather than text: a fetched PDF or Word document is binary, and decoding
+ * it as UTF-8 on the way in would destroy it.
  */
-async function readCapped(response: Response): Promise<string> {
+async function readCapped(response: Response): Promise<Uint8Array> {
   const declared = Number(response.headers.get("content-length"));
 
   if (Number.isFinite(declared) && declared > MAX_SOURCE_BYTES) {
     throw new IngestError("The source is larger than the 20 MB limit.");
   }
 
-  if (!response.body) return "";
+  if (!response.body) return new Uint8Array();
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
+  const parts: Uint8Array[] = [];
   let received = 0;
-  let text = "";
 
   try {
     while (true) {
@@ -260,19 +305,28 @@ async function readCapped(response: Response): Promise<string> {
         throw new IngestError("The source is larger than the 20 MB limit.");
       }
 
-      text += decoder.decode(value, { stream: true });
+      parts.push(value);
     }
   } finally {
     await reader.cancel().catch(() => {});
   }
 
-  return text + decoder.decode();
+  const body = new Uint8Array(received);
+  let offset = 0;
+
+  for (const part of parts) {
+    body.set(part, offset);
+    offset += part.byteLength;
+  }
+
+  return body;
 }
 
 function describe(error: unknown): string {
   if (
     error instanceof IngestError ||
     error instanceof UnsupportedSourceError ||
+    error instanceof ExtractionError ||
     error instanceof UnsafeUrlError
   ) {
     return error.message;

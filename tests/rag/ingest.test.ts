@@ -161,14 +161,14 @@ describe("ingestDocument", () => {
   });
 
   it("fails the document for a source type it cannot read, without throwing", async () => {
-    const { document } = await pendingDocument("ingest-pdf@example.com", { mimeType: "application/pdf" });
+    const { document } = await pendingDocument("ingest-png@example.com", { mimeType: "image/png" });
     const { embed } = spyEmbedder();
 
-    const result = await ingestDocument({ documentId: document.id, raw: "%PDF-1.4", embed });
+    const result = await ingestDocument({ documentId: document.id, raw: "not an image", embed });
 
     expect(result.status).toBe("failed");
     const stored = await prisma.document.findUnique({ where: { id: document.id } });
-    expect(stored?.error).toMatch(/application\/pdf/);
+    expect(stored?.error).toMatch(/image\/png/);
   });
 
   it("leaves no partial chunks behind when embedding fails", async () => {
@@ -304,6 +304,116 @@ describe("ingestDocument", () => {
 
     expect(result.status).toBe("failed");
     expect(result.error).toMatch(/not found/i);
+  });
+});
+
+describe("ingestDocument of binary documents", () => {
+  const fixture = async (path: string) => new Uint8Array(await Bun.file(path).arrayBuffer());
+
+  beforeEach(async () => {
+    await resetTestDatabase();
+  });
+
+  it("ingests a PDF and records how many pages it had", async () => {
+    const { document } = await pendingDocument("ingest-pdf-ok@example.com", {
+      mimeType: "application/pdf",
+      title: "Employee Handbook",
+    });
+    const { embed } = spyEmbedder();
+
+    const result = await ingestDocument({
+      documentId: document.id,
+      raw: await fixture("tests/fixtures/handbook.pdf"),
+      embed,
+    });
+
+    expect(result.status).toBe("ready");
+    const stored = await prisma.document.findUnique({ where: { id: document.id } });
+    expect(stored?.pageCount).toBe(2);
+    expect(stored?.byteSize).toBeGreaterThan(0);
+  });
+
+  it("tags each PDF chunk with the page it came from", async () => {
+    const { document } = await pendingDocument("ingest-pdf-pages@example.com", {
+      mimeType: "application/pdf",
+    });
+    const { embed } = spyEmbedder();
+
+    await ingestDocument({
+      documentId: document.id,
+      raw: await fixture("tests/fixtures/handbook.pdf"),
+      embed,
+      chunkOptions: { targetTokens: 40, overlapTokens: 0, minTokens: 5 },
+    });
+
+    const chunks = await prisma.chunk.findMany({
+      where: { documentId: document.id },
+      orderBy: { ordinal: "asc" },
+    });
+
+    const expenses = chunks.find((chunk) => chunk.content.includes("Receipts must be filed"));
+    const travel = chunks.find((chunk) => chunk.content.includes("Economy class is the default"));
+
+    expect(expenses?.page).toBe(1);
+    expect(travel?.page).toBe(2);
+    // Ordinals stay unique and in reading order across the page boundary.
+    expect(chunks.map((chunk) => chunk.ordinal)).toEqual(chunks.map((_, i) => i));
+  });
+
+  it("ingests a Word document, keeping its headings for citations", async () => {
+    const { document } = await pendingDocument("ingest-docx@example.com", {
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      title: "Remote Work Policy",
+    });
+    const { embed } = spyEmbedder();
+
+    const result = await ingestDocument({
+      documentId: document.id,
+      raw: await fixture("tests/fixtures/remote-work.docx"),
+      embed,
+      chunkOptions: { targetTokens: 40, overlapTokens: 0, minTokens: 5 },
+    });
+
+    expect(result.status).toBe("ready");
+    const chunks = await prisma.chunk.findMany({ where: { documentId: document.id } });
+    const equipment = chunks.find((chunk) => chunk.content.includes("external monitor"));
+
+    expect(equipment?.heading).toBe("Equipment");
+    // A .docx has no pagination until it is laid out, so there is no honest page number.
+    expect(equipment?.page).toBeNull();
+  });
+
+  it("gives the embedding model the page's heading as context", async () => {
+    const { document } = await pendingDocument("ingest-pdf-context@example.com", {
+      mimeType: "application/pdf",
+      title: "Employee Handbook",
+    });
+    const { seen, embed } = spyEmbedder();
+
+    await ingestDocument({
+      documentId: document.id,
+      raw: await fixture("tests/fixtures/handbook.pdf"),
+      embed,
+    });
+
+    expect(seen[0]).toContain("Employee Handbook");
+  });
+
+  it("fails a PDF that is not really a PDF", async () => {
+    const { document } = await pendingDocument("ingest-pdf-bad@example.com", {
+      mimeType: "application/pdf",
+    });
+    const { embed } = spyEmbedder();
+
+    const result = await ingestDocument({
+      documentId: document.id,
+      raw: new TextEncoder().encode("certainly not a pdf"),
+      embed,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toMatch(/PDF/i);
+    expect(await prisma.chunk.count({ where: { documentId: document.id } })).toBe(0);
   });
 });
 
@@ -446,10 +556,10 @@ describe("ingestDocument from a URL", () => {
   });
 
   it("fails a fetched document whose content type cannot be read", async () => {
-    const document = await urlDocument("ingest-ctype-bad@example.com", "https://example.com/report.pdf");
+    const document = await urlDocument("ingest-ctype-bad@example.com", "https://example.com/logo.png");
     const { embed } = spyEmbedder();
     const fetchImpl = async () =>
-      new Response("%PDF-1.4 binary", { status: 200, headers: { "Content-Type": "application/pdf" } });
+      new Response("binary", { status: 200, headers: { "Content-Type": "image/png" } });
 
     const result = await ingestDocument({
       documentId: document.id,
@@ -459,6 +569,43 @@ describe("ingestDocument from a URL", () => {
     });
 
     expect(result.status).toBe("failed");
-    expect(result.error).toMatch(/application\/pdf/);
+    expect(result.error).toMatch(/image\/png/);
+  });
+
+  it("fails a fetched PDF that cannot be parsed, with a message naming the format", async () => {
+    const document = await urlDocument("ingest-bad-pdf@example.com", "https://example.com/report.pdf");
+    const { embed } = spyEmbedder();
+    const fetchImpl = async () =>
+      new Response("%PDF-1.4 truncated", { status: 200, headers: { "Content-Type": "application/pdf" } });
+
+    const result = await ingestDocument({
+      documentId: document.id,
+      embed,
+      lookup: publicLookup,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toMatch(/PDF/i);
+  });
+
+  it("ingests a PDF served over http, keeping page numbers", async () => {
+    const document = await urlDocument("ingest-url-pdf@example.com", "https://example.com/handbook.pdf");
+    const { embed } = spyEmbedder();
+    const pdf = new Uint8Array(await Bun.file("tests/fixtures/handbook.pdf").arrayBuffer());
+    const fetchImpl = async () =>
+      new Response(pdf, { status: 200, headers: { "Content-Type": "application/pdf" } });
+
+    const result = await ingestDocument({
+      documentId: document.id,
+      embed,
+      lookup: publicLookup,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.status).toBe("ready");
+    const chunks = await prisma.chunk.findMany({ where: { documentId: document.id } });
+    expect(chunks.some((chunk) => chunk.content.includes("Receipts must be filed"))).toBe(true);
+    expect(chunks.every((chunk) => chunk.page !== null)).toBe(true);
   });
 });

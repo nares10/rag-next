@@ -92,7 +92,10 @@ Two things to know:
   Anthropic or OpenRouter — a collection is only searchable if every vector in it came
   from the same model. Without that key, chat still works; document search reports itself
   as unavailable.
-- **Text, markdown and HTML only.** PDF and Word files are not read yet.
+- **PDF, Word (.docx), markdown, plain text and HTML** are all read. PDF chunks keep the
+  page they came from, so citations can say `(p.12)`.
+- **Uploads are limited to 4 MB** by the serverless request-body cap. Larger documents can
+  be added by URL, which streams up to 20 MB.
 
 Postgres needs the `pgvector` extension; the migration creates it, so the database role
 must be allowed to `CREATE EXTENSION`.

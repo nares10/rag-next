@@ -9,7 +9,7 @@ import { ingestDocument } from "./ingest";
  * handlers with no business knowing about embedding configuration — and a missing server
  * key has to surface as a failed document, not a thrown request.
  */
-export async function processDocument(documentId: string, raw?: string) {
+export async function processDocument(documentId: string, raw?: string | Uint8Array) {
   try {
     return await ingestDocument({ documentId, raw, embed: createEmbedder() });
   } catch (error) {

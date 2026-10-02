@@ -1,6 +1,6 @@
 # RAG Feature Spec
 
-Status: implemented (phases 1 & 3, text sources) · Owner: @naresh-dewasi · Target: `rag-next`
+Status: implemented (phases 1 & 3, plus PDF/DOCX extraction and file upload) · Owner: @naresh-dewasi · Target: `rag-next`
 (Next 16.3.3 App Router, Prisma 6, Postgres + pgvector, Bun)
 
 > **Implementation notes** are collected in §12. Where the shipped code differs from the
@@ -180,7 +180,7 @@ Stages, each idempotent and restartable from `Document.status`:
 | # | Stage | Detail |
 |---|-------|--------|
 | 1 | Fetch | Download blob to memory. Reject if `byteSize > 20 MB`. |
-| 2 | Extract | By MIME: `pdf` → `unpdf` (text + page index); `docx` → `mammoth`; `md`/`txt` → as-is; `html` → `turndown` to Markdown. Record `pageCount`. |
+| 2 | Extract | By MIME: `pdf` → `unpdf` (per-page text + `pageCount`); `docx` → `mammoth` to HTML, so Word headings survive as markdown headings; `md`/`txt` → as-is; `html` → markdown. |
 | 3 | Normalize | Collapse runs of whitespace, strip repeated page headers/footers, drop pages with < 20 non-whitespace chars, normalize unicode (NFKC). |
 | 4 | Hash & dedupe | `sha256(normalizedText)`. If `(collectionId, contentHash)` exists, mark this document `ready` pointing at the existing chunks' document and stop. |
 | 5 | Chunk | Recursive split on `\n## ` → `\n### ` → `\n\n` → sentence → hard character cut. Target **800 tokens**, **100-token overlap**, minimum 80 tokens (merge forward if smaller). Each chunk carries the nearest enclosing heading and its page. Prefix the stored `content` with `"{title} › {heading}\n\n"` so the embedding sees document context. |
@@ -314,7 +314,7 @@ existing routes. All ownership filters are `WHERE userId = session.user.id`.
 | Concern | Decision |
 |---------|----------|
 | Server-side request forgery | A user-supplied URL is checked before every fetch and on every redirect hop (`lib/rag/url-guard.ts`): http(s) only, no internal hostnames, and the resolved addresses must all be public. Without it, "fetch this URL" reads cloud metadata or an internal port and hands the body back in a cited answer. |
-| File size | 20 MB (enforced while the response streams, plus an up-front `content-length` check); 200 pages; 2000 chunks per document |
+| File size | 4 MB by upload (request-body limit), 20 MB by URL (enforced while the response streams, plus an up-front `content-length` check); 2000 chunks per document |
 | Quota | 50 documents / 20k chunks per user (free tier), surfaced in the profile page next to `freeMessagesUsed` |
 | Embedding cost | ~$0.02 per 1M tokens at `text-embedding-3-small`; a 200-page PDF ≈ 120k tokens ≈ $0.0025. Query embeddings are one per message. |
 | Embedding key | Server's `OPENAI_API_KEY` is used for embeddings even when the chat provider is Anthropic/OpenRouter — the corpus must stay in one vector space. Document this; it means RAG requires an OpenAI key server-side. |
@@ -389,7 +389,7 @@ where the two disagree.
 |------|-------|
 | Schema + pgvector migration | `prisma/schema.prisma`, `prisma/migrations/20261002160000_add_rag/` |
 | Chunking, normalization, token budget | `lib/rag/{chunk,normalize,tokens}.ts` |
-| Extraction (text, markdown, html) | `lib/rag/extract.ts` |
+| Extraction (text, markdown, html, PDF, DOCX) | `lib/rag/extract.ts` |
 | Embeddings (batching, retry, dimension check) | `lib/rag/embed.ts` |
 | Ingestion pipeline | `lib/rag/ingest.ts`, `lib/rag/documents.ts` |
 | Hybrid retrieval (vector + keyword + RRF) | `lib/rag/{retrieve,fuse}.ts` |
@@ -402,12 +402,12 @@ where the two disagree.
 
 ### Deliberate departures
 
-1. **Text sources only.** PDF and DOCX are not read. `lib/rag/extract.ts` dispatches on
-   mime type through one `EXTRACTORS` map, so adding them is a parser dependency plus one
-   entry; until then `supportsMimeType` is false for them, `POST /api/rag/documents`
-   answers 415, and a document whose type cannot be read fails with the type named.
-   Vercel Blob upload (§4.1) is not wired either: `sourceType: "file"` is rejected with a
-   message pointing at paste and URL.
+1. **Upload goes through the request body, not Vercel Blob.** `POST /api/rag/documents`
+   accepts `multipart/form-data` and holds the bytes in the `after()` closure, exactly as
+   pasted text is held. That caps a file at 4 MB (`MAX_UPLOAD_BYTES`), under the
+   platform's 4.5 MB body limit — §4.1's direct-to-Blob upload is what lifts it to the
+   20 MB the pipeline otherwise supports. Larger documents can still be added by URL,
+   which streams and is capped at 20 MB.
 2. **Background work uses `after()`, not Queues.** `POST /api/rag/documents` responds 202
    and processes the document in the same invocation via `after()` from `next/server`.
    `POST /api/rag/documents/[id]/process` exists for the retry button and as the trigger a
@@ -426,8 +426,10 @@ where the two disagree.
    not on a comparable scale, so only the ordering within one result set means anything.
 7. **Neighbour expansion (ordinal ± 1) is not implemented.** Chunk overlap already covers
    the boundary case it was there for.
-8. **`page` is always null** for the supported source types, which have no pagination. The
-   column, the citation field and the `(p.N)` rendering are all in place for PDFs.
+8. **`page` is populated for PDFs only.** A PDF is chunked page by page, so each chunk can
+   name the page it came from and citations read `(p.12)`. A `.docx` has no pagination
+   until it is laid out, and pasted or fetched text has none at all, so `page` stays null
+   for those — the citation then shows just the title and heading.
 9. **Citations render as a tooltip chip plus a Sources list** under the message, not a side
    panel with the passage text. A panel needs a `GET /api/rag/chunks/[id]` endpoint;
    nothing else is missing.
@@ -441,6 +443,10 @@ where the two disagree.
 
 ### Operational notes
 
+- **A PDF or Word file cannot be pasted**: the route answers 415 telling the user to
+  upload it, rather than accepting bytes mangled by JSON string decoding.
+- **pdf.js detaches the buffer it is handed.** `extractPdf` passes it a copy, so callers
+  still hold their bytes afterwards; a test pins this.
 - **Embeddings need `OPENAI_API_KEY` on the server**, whichever provider the user chats
   with (§8). Without it, retrieval degrades: the answer still streams, with the
   "document search was unavailable" notice.

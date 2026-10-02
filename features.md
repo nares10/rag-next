@@ -20,11 +20,12 @@
   conversation and the assistant answers from them, with `[n]` citations streamed ahead of
   the answer. Hybrid retrieval (pgvector cosine + Postgres full-text, fused with RRF),
   heading-aware chunking with overlap, follow-up query rewriting, per-message opt-out, and
-  a grounding notice when nothing matched. Text, markdown and HTML sources; see
+  a grounding notice when nothing matched. Upload PDF and Word (.docx) files, paste text
+  or markdown, or point it at a URL; PDF chunks cite the page they came from. See
   `docs/rag-spec.md`.
 
 ## Next:
-- RAG: PDF and DOCX extraction, and file upload via Vercel Blob
+- RAG: direct-to-storage upload, to lift the 4 MB file limit to the pipeline's 20 MB
 - RAG: build the retrieval eval set before tuning chunk size or the similarity floor
 - Add message search functionality
 - i w
