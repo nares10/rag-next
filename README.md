@@ -1,4 +1,4 @@
-# RA
+# RAG - Retrieval-Augmented Generation  
 
 A self-hosted RAG chat application. Upload your documents, attach them to a conversation,
 and the assistant answers **from those documents** — with inline citations you can click
