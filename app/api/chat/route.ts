@@ -5,6 +5,7 @@ import { FREE_MESSAGE_LIMIT } from "@/lib/freeMessages";
 import { buildChatContext } from "@/lib/rag/chat-context";
 import { createCompleter } from "@/lib/rag/complete";
 import { lazyEmbedder } from "@/lib/rag/embed";
+import { isKnownModel } from "@/lib/models";
 import type { Citation } from "@/lib/rag/types";
 
 // Overridable so the app can talk to an OpenAI-compatible endpoint (and so tests can
@@ -24,10 +25,9 @@ function streamSSE(data: unknown) {
 
 type ProviderMessage = { role: string; content: string };
 
-async function streamOpenRouter(messages: ProviderMessage[], userApiKey?: string) {
+async function streamOpenRouter(messages: ProviderMessage[], userApiKey?: string, chosenModel?: string) {
   const apiKey = userApiKey || process.env.OPENROUTER_API_KEY;
-  const model = process.env.OPENROUTER_MODEL || "openrouter/free";
-  
+  const model = chosenModel || process.env.OPENROUTER_MODEL || "openrouter/free";
 
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is missing. Add it to your .env.local file or provide an API key.");
@@ -58,9 +58,9 @@ async function streamOpenRouter(messages: ProviderMessage[], userApiKey?: string
   return upstream;
 }
 
-async function streamOpenAI(messages: ProviderMessage[], userApiKey?: string) {
+async function streamOpenAI(messages: ProviderMessage[], userApiKey?: string, chosenModel?: string) {
   const apiKey = userApiKey || process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const model = chosenModel || process.env.OPENAI_MODEL || "gpt-4o-mini";
 
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is missing. Add it to your .env.local file or provide an API key.");
@@ -87,9 +87,14 @@ async function streamOpenAI(messages: ProviderMessage[], userApiKey?: string) {
   return upstream;
 }
 
-async function streamAnthropic(messages: ProviderMessage[], userApiKey?: string, system?: string) {
+async function streamAnthropic(
+  messages: ProviderMessage[],
+  userApiKey?: string,
+  system?: string,
+  chosenModel?: string,
+) {
   const apiKey = userApiKey || process.env.ANTHROPIC_API_KEY;
-  const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
+  const model = chosenModel || process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
 
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY is missing. Add it to your .env.local file or provide an API key.");
@@ -144,6 +149,12 @@ export async function POST(request: NextRequest) {
     // Opt out of document search for a single message without detaching the collection.
     const useRag = body?.useRag !== false;
     const normalizedProvider = (providerInput || process.env.AI_PROVIDER || "openrouter").toLowerCase();
+    // Free messages are paid for with the server's keys, so only a request carrying the
+    // user's own key may pick a model; everyone else gets the configured default.
+    const model = apiKey && isKnownModel(normalizedProvider, body?.model) ? (body.model as string) : null;
+    // Replace the last exchange instead of appending to it. The old pair is only deleted
+    // once the new answer has arrived, so a failed regenerate loses nothing.
+    const regenerate = body?.regenerate === true;
 
     // Check free message limit if no API key provided
     if (!apiKey) {
@@ -193,13 +204,22 @@ export async function POST(request: NextRequest) {
           userId: user.id,
           title: message.substring(0, 50) + (message.length > 50 ? "..." : ""),
           provider: normalizedProvider,
+          model,
           collectionId: ownedCollectionId,
         },
       });
-    } else if (ownedCollectionId && ownedCollectionId !== conversation.collectionId) {
+    } else if (
+      (ownedCollectionId && ownedCollectionId !== conversation.collectionId) ||
+      conversation.provider !== normalizedProvider ||
+      conversation.model !== model
+    ) {
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
-        data: { collectionId: ownedCollectionId },
+        data: {
+          provider: normalizedProvider,
+          model,
+          ...(ownedCollectionId ? { collectionId: ownedCollectionId } : {}),
+        },
       });
     }
 
@@ -218,6 +238,17 @@ export async function POST(request: NextRequest) {
         take: 10,
       })
     ).reverse();
+
+    // The exchange being regenerated must not be in the model's history.
+    const replaced: string[] = [];
+    if (regenerate) {
+      const [question, answer] = conversationHistory.slice(-2);
+
+      if (question?.role === "user" && answer?.role === "assistant" && question.content === message) {
+        replaced.push(question.id, answer.id);
+        conversationHistory.splice(-2, 2);
+      }
+    }
 
     const history = conversationHistory.map(msg => ({
       role: msg.role as "user" | "assistant",
@@ -255,16 +286,22 @@ export async function POST(request: NextRequest) {
     let upstream: Response;
 
     if (normalizedProvider === "openai") {
-      upstream = await streamOpenAI(messagesForAI, apiKey || undefined);
+      upstream = await streamOpenAI(messagesForAI, apiKey || undefined, model ?? undefined);
     } else if (isAnthropic) {
-      upstream = await streamAnthropic(messagesForAI, apiKey || undefined, context.system ?? undefined);
+      upstream = await streamAnthropic(
+        messagesForAI,
+        apiKey || undefined,
+        context.system ?? undefined,
+        model ?? undefined,
+      );
     } else {
-      upstream = await streamOpenRouter(messagesForAI, apiKey || undefined);
+      upstream = await streamOpenRouter(messagesForAI, apiKey || undefined, model ?? undefined);
     }
 
     const encoder = new TextEncoder();
     let fullResponse = "";
-    
+    let savedMessageId: string | null = null;
+
     const stream = new ReadableStream({
       async start(controller) {
         const decoder = new TextDecoder();
@@ -327,6 +364,10 @@ export async function POST(request: NextRequest) {
           // (rather than createMany) so their createdAt timestamps stay
           // distinct for ordering.
           if (fullResponse) {
+            if (replaced.length > 0) {
+              await prisma.message.deleteMany({ where: { id: { in: replaced }, conversationId: conversation.id } });
+            }
+
             await prisma.message.create({
               data: {
                 conversationId: conversation.id,
@@ -335,7 +376,7 @@ export async function POST(request: NextRequest) {
               },
             });
 
-            await prisma.message.create({
+            const saved = await prisma.message.create({
               data: {
                 conversationId: conversation.id,
                 role: "assistant",
@@ -343,10 +384,13 @@ export async function POST(request: NextRequest) {
                 citations: context.citations.length > 0 ? (context.citations as unknown as Citation[]) : undefined,
               },
             });
+            savedMessageId = saved.id;
           }
 
           // Send conversation ID at the end
-          controller.enqueue(encoder.encode(streamSSE({ conversationId: conversation.id, done: true })));
+          controller.enqueue(
+            encoder.encode(streamSSE({ conversationId: conversation.id, messageId: savedMessageId, done: true })),
+          );
           controller.close();
         } catch (error) {
           const message =

@@ -8,6 +8,8 @@ interface ProviderSelectModalProps {
   onKeySaved: (apiKey: { id: string; name: string; provider: string; key: string }) => void;
   apiKeys: Array<{ id: string; name: string; provider: string; key: string }>;
   isLoading: boolean;
+  /** Opens with this provider already chosen (e.g. from the model picker). */
+  initialProvider?: string | null;
 }
 
 const providers = [
@@ -23,8 +25,9 @@ export default function ProviderSelectModal({
   onKeySaved,
   apiKeys,
   isLoading,
+  initialProvider = null,
 }: ProviderSelectModalProps) {
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(initialProvider);
   const [customApiKey, setCustomApiKey] = useState("");
   const [useExistingKey, setUseExistingKey] = useState(false);
   const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
@@ -118,7 +121,7 @@ export default function ProviderSelectModal({
     : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-sm"
@@ -140,7 +143,7 @@ export default function ProviderSelectModal({
                 onClick={() => handleProviderChange(provider.id)}
                 className={`flex items-center gap-3 rounded-lg border p-3 text-left transition ${
                   selectedProvider === provider.id
-                    ? "border-zinc-500 bg-zinc-800"
+                    ? "border-accent bg-accent-soft"
                     : "border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
                 }`}
               >
@@ -252,7 +255,7 @@ export default function ProviderSelectModal({
           <button
             onClick={handleSubmit}
             disabled={!selectedProvider || isLoading || isSaving}
-            className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSaving ? "Saving..." : isLoading ? "Loading..." : "Continue"}
           </button>

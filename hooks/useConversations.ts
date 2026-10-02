@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ChatUser, Conversation, Message, Provider } from "@/lib/chat-types";
 
@@ -21,6 +21,7 @@ export function useConversations(user: ChatUser | null, conversationId?: string)
 	const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
 	const [provider, setProvider] = useState<Provider>("openrouter");
+	const [model, setModel] = useState<string | null>(null);
 	const [attachedCollectionId, setAttachedCollectionId] = useState<string | null>(null);
 	const [isLoadingConversations, setIsLoadingConversations] = useState(false);
 
@@ -48,6 +49,7 @@ export function useConversations(user: ChatUser | null, conversationId?: string)
 				const conversation = conversationData.conversation as Conversation;
 				setCurrentConversationId(conversation.id);
 				setProvider(conversation.provider as Provider);
+				setModel(conversation.model ?? null);
 				setAttachedCollectionId(conversation.collectionId ?? null);
 				setMessages(conversation.messages.map(toMessage));
 			} catch (error) {
@@ -59,6 +61,19 @@ export function useConversations(user: ChatUser | null, conversationId?: string)
 
 		void loadConversations();
 	}, [conversationId, router, user]);
+
+	/** Re-reads the list, e.g. after a message created a conversation or bumped its order. */
+	const refreshConversations = useCallback(async () => {
+		try {
+			const response = await fetch("/api/conversations");
+			if (!response.ok) return;
+
+			const data = await response.json();
+			setConversations(data.conversations || []);
+		} catch (error) {
+			console.error("Failed to refresh conversations", error);
+		}
+	}, []);
 
 	const renameConversation = async (conversation: Conversation, title: string) => {
 		const response = await fetch(`/api/conversations/${conversation.id}`, {
@@ -118,6 +133,9 @@ export function useConversations(user: ChatUser | null, conversationId?: string)
 		setMessages,
 		provider,
 		setProvider,
+		model,
+		setModel,
+		refreshConversations,
 		attachedCollectionId,
 		setAttachedCollectionId,
 		attachCollection,

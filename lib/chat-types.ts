@@ -17,6 +17,11 @@ export type Citation = {
  */
 export type Grounding = "grounded" | "none" | "degraded";
 
+/** What document search is doing for an answer that is still streaming. */
+export type RetrievalStep =
+  | { phase: "searching"; collectionName: string }
+  | { phase: "found"; collectionName: string; count: number };
+
 export type Message = {
   id: string;
   role: "assistant" | "user";
@@ -24,13 +29,37 @@ export type Message = {
   conversationId?: string;
   citations?: Citation[];
   grounding?: Grounding;
+  retrieval?: RetrievalStep;
+  /**
+   * Database id once the answer is saved. `id` stays the client key so a finished
+   * stream doesn't remount (and re-animate) its message.
+   */
+  storedId?: string;
+  /** A request that failed; shown differently and never offered for feedback. */
+  isError?: boolean;
+};
+
+/** A cited passage with its neighbouring chunks, as returned by /api/rag/chunks. */
+export type CitedPassage = {
+  id: string;
+  documentId: string;
+  title: string;
+  sourceUri: string | null;
+  heading: string | null;
+  page: number | null;
+  content: string;
+  before: string | null;
+  after: string | null;
 };
 
 export type Conversation = {
   id: string;
   title: string;
   provider: string;
+  model?: string | null;
   collectionId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   messages: Array<{
     id: string;
     role: string;
@@ -68,6 +97,7 @@ export type RagDocument = {
   sourceType: string;
   sourceUri: string | null;
   mimeType: string;
+  byteSize: number;
   status: "pending" | "processing" | "ready" | "failed";
   error: string | null;
   chunkCount: number;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUser, RagCollection, RagDocument } from "@/lib/chat-types";
 
 const POLL_INTERVAL_MS = 2000;
@@ -7,6 +7,42 @@ const MAX_POLLS = 150;
 
 const isTerminal = (document: RagDocument) =>
   document.status === "ready" || document.status === "failed";
+
+/** A file on its way to the server; it becomes a RagDocument once the POST succeeds. */
+export type PendingUpload = {
+	id: string;
+	collectionId: string;
+	file: File;
+	status: "uploading" | "failed";
+	/** Bytes sent so far, 0–1. */
+	progress: number;
+	error: string | null;
+};
+
+/**
+ * POSTs a form with upload progress, which fetch cannot report. Resolves with the
+ * response status and parsed JSON body (null if it wasn't JSON).
+ */
+function postWithProgress(url: string, body: FormData, onProgress: (fraction: number) => void) {
+	return new Promise<{ status: number; data: Record<string, unknown> | null }>((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open("POST", url);
+		request.upload.onprogress = (event) => {
+			if (event.lengthComputable) onProgress(event.loaded / event.total);
+		};
+		request.onload = () => {
+			let data = null;
+			try {
+				data = JSON.parse(request.responseText);
+			} catch {
+				// Not JSON; the status alone decides.
+			}
+			resolve({ status: request.status, data });
+		};
+		request.onerror = () => reject(new Error("Network error"));
+		request.send(body);
+	});
+}
 
 function fileBody(collectionId: string, file: File, title?: string): FormData {
 	const form = new FormData();
@@ -25,14 +61,21 @@ function fileBody(collectionId: string, file: File, title?: string): FormData {
  */
 export function useRagDocuments(user: ChatUser | null) {
 	const [collections, setCollections] = useState<RagCollection[]>([]);
+	const [hasLoadedCollections, setHasLoadedCollections] = useState(false);
 	const [documents, setDocuments] = useState<RagDocument[]>([]);
 	const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
+	// Read by upload callbacks that resolve after the user may have switched collections.
+	const activeCollectionIdRef = useRef<string | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	// Bumped whenever a document is added or retried, to restart a poll loop that has
 	// already settled — otherwise a new document sits at "Queued" until the collection is
 	// re-selected.
 	const [pollToken, setPollToken] = useState(0);
+	const [uploads, setUploads] = useState<PendingUpload[]>([]);
+	// The server does not keep uploaded bytes, so a failed file can only be retried from
+	// the copy still held by this tab.
+	const uploadedFiles = useRef(new Map<string, File>());
 
 	const loadCollections = useCallback(async () => {
 		try {
@@ -43,6 +86,8 @@ export function useRagDocuments(user: ChatUser | null) {
 			setCollections(data.collections || []);
 		} catch (cause) {
 			console.error("Failed to load collections", cause);
+		} finally {
+			setHasLoadedCollections(true);
 		}
 	}, []);
 
@@ -103,6 +148,7 @@ export function useRagDocuments(user: ChatUser | null) {
 
 	/** Clearing the previous collection's documents belongs here, not in an effect. */
 	const selectCollection = (collectionId: string | null) => {
+		activeCollectionIdRef.current = collectionId;
 		setActiveCollectionId(collectionId);
 		setDocuments([]);
 	};
@@ -175,6 +221,68 @@ export function useRagDocuments(user: ChatUser | null) {
 		}
 	};
 
+	const postFile = async (upload: PendingUpload) => {
+		try {
+			const response = await postWithProgress(
+				"/api/rag/documents",
+				fileBody(upload.collectionId, upload.file),
+				(progress) =>
+					setUploads((current) => current.map((item) => (item.id === upload.id ? { ...item, progress } : item))),
+			);
+
+			if (response.status < 200 || response.status >= 300) {
+				const error = (response.data?.error as string | undefined) || "Upload failed.";
+				setUploads((current) =>
+					current.map((item) => (item.id === upload.id ? { ...item, status: "failed", error } : item)),
+				);
+				return;
+			}
+
+			const document = response.data?.document as RagDocument;
+			uploadedFiles.current.set(document.id, upload.file);
+			setUploads((current) => current.filter((item) => item.id !== upload.id));
+			setDocuments((current) =>
+				document.collectionId === activeCollectionIdRef.current ? [document, ...current] : current,
+			);
+			setPollToken((current) => current + 1);
+			void loadCollections();
+		} catch {
+			setUploads((current) =>
+				current.map((item) =>
+					item.id === upload.id ? { ...item, status: "failed", error: "Network error. Try again." } : item,
+				),
+			);
+		}
+	};
+
+	/** Uploads several files at once; each one is tracked separately so one failure doesn't block the rest. */
+	const uploadFiles = async (collectionId: string, files: File[]) => {
+		setError(null);
+		const pending = files.map<PendingUpload>((file) => ({
+			id: crypto.randomUUID(),
+			collectionId,
+			file,
+			status: "uploading",
+			progress: 0,
+			error: null,
+		}));
+
+		setUploads((current) => [...pending, ...current]);
+		await Promise.all(pending.map(postFile));
+	};
+
+	const retryUpload = async (uploadId: string) => {
+		const upload = uploads.find((item) => item.id === uploadId);
+		if (!upload) return;
+
+		const retrying = { ...upload, status: "uploading" as const, progress: 0, error: null };
+		setUploads((current) => current.map((item) => (item.id === uploadId ? retrying : item)));
+		await postFile(retrying);
+	};
+
+	const dismissUpload = (uploadId: string) =>
+		setUploads((current) => current.filter((item) => item.id !== uploadId));
+
 	const deleteDocument = async (documentId: string) => {
 		const response = await fetch(`/api/rag/documents/${documentId}`, { method: "DELETE" });
 		if (!response.ok) return false;
@@ -185,6 +293,16 @@ export function useRagDocuments(user: ChatUser | null) {
 	};
 
 	const retryDocument = async (documentId: string) => {
+		const keptFile = uploadedFiles.current.get(documentId);
+		const document = documents.find((item) => item.id === documentId);
+
+		if (keptFile && document?.sourceType === "file") {
+			await deleteDocument(documentId);
+			uploadedFiles.current.delete(documentId);
+			await uploadFiles(document.collectionId, [keptFile]);
+			return true;
+		}
+
 		const response = await fetch(`/api/rag/documents/${documentId}/process`, { method: "POST" });
 		const data = await response.json().catch(() => null);
 
@@ -204,6 +322,7 @@ export function useRagDocuments(user: ChatUser | null) {
 
 	return {
 		collections,
+		hasLoadedCollections,
 		documents,
 		activeCollectionId,
 		selectCollection,
@@ -213,6 +332,12 @@ export function useRagDocuments(user: ChatUser | null) {
 		createCollection,
 		deleteCollection,
 		addDocument,
+		uploads,
+		uploadFiles,
+		retryUpload,
+		dismissUpload,
+		canRetry: (document: RagDocument) =>
+			document.sourceType === "url" || uploadedFiles.current.has(document.id),
 		deleteDocument,
 		retryDocument,
 		reloadCollections: loadCollections,

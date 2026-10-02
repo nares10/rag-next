@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+import { AnimatePresence, motion } from "motion/react";
+
 interface ConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -6,6 +9,8 @@ interface ConfirmModalProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  /** "danger" for irreversible actions such as deleting. */
+  tone?: "default" | "danger";
 }
 
 export default function ConfirmModal({
@@ -16,19 +21,40 @@ export default function ConfirmModal({
   message,
   confirmText = "Confirm",
   cancelText = "Cancel",
+  tone = "default",
 }: ConfirmModalProps) {
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <AnimatePresence>
+    {isOpen && (
+    <motion.div key="confirm" className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
       {/* Backdrop */}
-      <div
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
         className="fixed inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
 
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 8 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+        className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl"
+      >
         <h3 className="text-lg font-semibold text-white">{title}</h3>
         <p className="mt-2 text-sm text-zinc-300">{message}</p>
 
@@ -40,13 +66,18 @@ export default function ConfirmModal({
             {cancelText}
           </button>
           <button
+            autoFocus
             onClick={onConfirm}
-            className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 active:scale-[0.99]"
+            className={`rounded-lg px-4 py-2 text-sm font-medium text-on-accent transition active:scale-[0.99] ${
+              tone === "danger" ? "bg-rose-600 hover:bg-rose-500" : "bg-accent hover:bg-accent-hover"
+            }`}
           >
             {confirmText}
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
+    )}
+    </AnimatePresence>
   );
 }

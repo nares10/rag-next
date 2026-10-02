@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0b0b0f;
+  --background: var(--color-zinc-950);
   --foreground: #ededed;
+  --surface-code: var(--surface-code);
+  --rule: #333;
 }
 
 @theme inline {
@@ -12,13 +14,71 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * One brand colour, used for primary buttons, active chips and citations.
+ * `on-accent` is text placed on top of it; it is not part of the light-mode remap below,
+ * so a button keeps white text in both themes.
+ */
+@theme {
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+  --color-accent-soft: rgb(99 102 241 / 0.15);
+  --color-accent-text: #a5b4fc;
+  --color-on-accent: #ffffff;
+}
+
+/*
+ * Light mode. The UI is written against the zinc scale as a dark theme, so light mode
+ * mirrors that scale (950 <-> white, 50 <-> near-black) instead of every component
+ * carrying a second set of classes. Status colours are darkened to stay readable on a
+ * light background.
+ */
+html.light {
+  color-scheme: light;
+  --foreground: #18181b;
+  --surface-code: #f4f4f5;
+  --rule: #e4e4e7;
+
+  --color-white: #09090b;
+  --color-zinc-50: #09090b;
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #52525b;
+  --color-zinc-500: #71717a;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-950: #ffffff;
+
+  --color-accent-text: #4f46e5;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-emerald-900: #a7f3d0;
+  --color-emerald-950: #ecfdf5;
+  --color-amber-300: #b45309;
+  --color-amber-400: #b45309;
+  --color-amber-950: #fffbeb;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+  --color-rose-900: #fecdd3;
+  --color-rose-950: #fff1f2;
+  --color-red-300: #b91c1c;
+  --color-red-950: #fef2f2;
+}
+
+html {
+  color-scheme: dark;
+}
+
 html,
 body {
   margin: 0;
   min-height: 100%;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
 * {
@@ -27,6 +87,157 @@ body {
 
 body {
   min-height: 100vh;
+}
+
+/* Inline citation markers produced by MarkdownMessage. */
+.citation-chip {
+  margin-left: 0.125rem;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  background: var(--color-accent-soft);
+  padding: 0.05rem 0.3rem;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-accent-text);
+  text-decoration: none;
+  transition: background-color 150ms;
+}
+
+.citation-chip:hover,
+.citation-chip:focus-visible {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  outline: none;
+}
+
+/*
+ * Motion. Component enter/exit animations use the `motion` library; these are the
+ * looping CSS effects. Everything here is switched off for prefers-reduced-motion.
+ */
+
+/* Moving highlight across text, for "Searching…" while retrieval runs. */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-zinc-500) 0%,
+    var(--color-zinc-500) 40%,
+    var(--color-zinc-100) 50%,
+    var(--color-zinc-500) 60%,
+    var(--color-zinc-500) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* Placeholder block for content that is still loading. */
+.skeleton {
+  border-radius: 0.375rem;
+  background: linear-gradient(
+    90deg,
+    var(--color-zinc-900) 0%,
+    var(--color-zinc-800) 50%,
+    var(--color-zinc-900) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* Blinking caret after the last block of an answer that is still streaming. */
+.stream-cursor > :last-child::after,
+.stream-cursor-done > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1.1em;
+  margin-left: 0.15em;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+
+.stream-cursor > :last-child::after {
+  animation: caret-blink 1s steps(2, jump-none) infinite;
+}
+
+.stream-cursor-done > :last-child::after {
+  animation: caret-out 300ms ease-out forwards;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes caret-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Waiting for the first token. */
+.typing-dot {
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* Document still processing. */
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  50% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text,
+  .skeleton,
+  .typing-dot,
+  .pulse-dot,
+  .stream-cursor > :last-child::after {
+    animation: none;
+  }
+
+  .shimmer-text {
+    color: var(--color-zinc-400);
+    background: none;
+  }
+
+  .stream-cursor-done > :last-child::after {
+    animation-duration: 1ms;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 /* Markdown prose styles */
@@ -39,7 +250,7 @@ body {
   font-weight: 700;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--rule);
   padding-bottom: 0.3em;
 }
 
@@ -48,7 +259,7 @@ body {
   font-weight: 600;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--rule);
   padding-bottom: 0.3em;
 }
 
@@ -80,7 +291,7 @@ body {
 }
 
 .prose code {
-  background: #1a1a1a;
+  background: var(--surface-code);
   padding: 0.2em 0.4em;
   border-radius: 4px;
   font-family: monospace;
@@ -88,7 +299,7 @@ body {
 }
 
 .prose pre {
-  background: #1a1a1a;
+  background: var(--surface-code);
   padding: 1em;
   border-radius: 8px;
   overflow-x: auto;
@@ -121,26 +332,26 @@ body {
 }
 
 .prose a {
-  color: #3b82f6;
+  color: var(--color-accent-text);
   text-decoration: underline;
 }
 
 .prose a:hover {
-  color: #60a5fa;
+  color: var(--color-accent-hover);
 }
 
 .prose blockquote {
-  border-left: 4px solid #3b82f6;
+  border-left: 4px solid var(--color-accent);
   padding-left: 1em;
   margin-top: 1em;
   margin-bottom: 1em;
-  color: #9ca3af;
+  color: var(--color-zinc-400);
   font-style: italic;
 }
 
 .prose hr {
   border: none;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--rule);
   margin-top: 2em;
   margin-bottom: 2em;
 }
@@ -161,12 +372,12 @@ body {
 }
 
 .prose th, .prose td {
-  border: 1px solid #333;
+  border: 1px solid var(--rule);
   padding: 0.5em;
   text-align: left;
 }
 
 .prose th {
-  background: #1a1a1a;
+  background: var(--surface-code);
   font-weight: 600;
 }

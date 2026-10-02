@@ -13,10 +13,10 @@ const md = new MarkdownIt({
 interface MarkdownMessageProps {
   text: string;
   citations?: Citation[];
+  /** Pointer or focus reached an inline `[n]` chip; null when it left. */
+  onCitationHover?: (citation: Citation | null, anchor: DOMRect | null) => void;
+  onCitationClick?: (citation: Citation) => void;
 }
-
-const CITATION_CLASS =
-  "ml-0.5 cursor-help rounded bg-zinc-700 px-1 py-0.5 text-[10px] font-medium text-zinc-100 no-underline";
 
 /**
  * Turns the model's `[n]` markers into chips that name their source.
@@ -59,8 +59,11 @@ function linkCitations(html: string, citations: Citation[]): string {
       const chip = document.createElement("sup");
       const label = [citation.title, citation.heading].filter(Boolean).join(" › ");
 
-      chip.className = CITATION_CLASS;
-      chip.title = citation.page === null ? label : `${label} (p.${citation.page})`;
+      chip.className = "citation-chip";
+      chip.dataset.citation = String(citation.n);
+      chip.setAttribute("role", "button");
+      chip.setAttribute("tabindex", "0");
+      chip.setAttribute("aria-label", `Source ${citation.n}: ${citation.page === null ? label : `${label}, page ${citation.page}`}`);
       chip.textContent = String(citation.n);
       fragment.append(chip);
 
@@ -74,14 +77,46 @@ function linkCitations(html: string, citations: Citation[]): string {
   return document.body.innerHTML;
 }
 
-export default function MarkdownMessage({ text, citations }: MarkdownMessageProps) {
+export default function MarkdownMessage({ text, citations, onCitationHover, onCitationClick }: MarkdownMessageProps) {
   const html = md.render(text);
   const safeHtml = DOMPurify.sanitize(html);
   const withCitations = citations?.length ? linkCitations(safeHtml, citations) : safeHtml;
 
+  // The chips are plain DOM inside sanitized HTML, so events are delegated from here.
+  const citationAt = (target: EventTarget | null) => {
+    const chip = target instanceof Element ? target.closest<HTMLElement>("[data-citation]") : null;
+    const citation = chip ? citations?.find((item) => item.n === Number(chip.dataset.citation)) : undefined;
+
+    return chip && citation ? { chip, citation } : null;
+  };
+
+  const enter = (event: React.SyntheticEvent) => {
+    const hit = citationAt(event.target);
+    if (hit) onCitationHover?.(hit.citation, hit.chip.getBoundingClientRect());
+  };
+
+  const leave = (event: React.SyntheticEvent) => {
+    if (citationAt(event.target)) onCitationHover?.(null, null);
+  };
+
   return (
     <div
-      className="prose prose-invert max-w-none"
+      className="prose max-w-none"
+      onMouseOver={enter}
+      onMouseOut={leave}
+      onFocus={enter}
+      onBlur={leave}
+      onClick={(event) => {
+        const hit = citationAt(event.target);
+        if (hit) onCitationClick?.(hit.citation);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const hit = citationAt(event.target);
+        if (!hit) return;
+        event.preventDefault();
+        onCitationClick?.(hit.citation);
+      }}
       dangerouslySetInnerHTML={{ __html: withCitations }}
     />
   );
