@@ -29,6 +29,12 @@ const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 500;
+/**
+ * Ceiling on a provider-requested wait. A free-tier quota window is tens of seconds and
+ * worth waiting out; anything beyond this is a quota that will not reopen in time, and
+ * blocking on it would hang an ingest run silently.
+ */
+const MAX_RETRY_AFTER_MS = 90_000;
 
 /**
  * Whether the text is something to be found, or something someone is searching for.
@@ -55,11 +61,14 @@ export type EmbedderOptions = {
 
 export class EmbeddingError extends Error {
   readonly status?: number;
+  /** How long the provider asked us to wait, when it said so. */
+  readonly retryAfterMs?: number;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, retryAfterMs?: number) {
     super(message);
     this.name = "EmbeddingError";
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -105,9 +114,11 @@ export function createEmbedder(options: EmbedderOptions = {}): Embedder {
         lastError = error;
 
         if (attempt < maxAttempts) {
-          // Exponential backoff with jitter so a burst of parallel batches doesn't
-          // retry in lockstep and trip the rate limit again.
-          await sleep(BASE_DELAY_MS * 2 ** (attempt - 1) * (1 + Math.random()));
+          // Prefer the provider's own figure: on a free tier the quota window is tens of
+          // seconds, and guessing a sub-second backoff burns every attempt before it
+          // reopens. Otherwise exponential backoff with jitter, so a burst of parallel
+          // batches doesn't retry in lockstep and trip the limit again.
+          await sleep(error.retryAfterMs ?? BASE_DELAY_MS * 2 ** (attempt - 1) * (1 + Math.random()));
         }
       }
     }
@@ -206,10 +217,29 @@ async function readPayload(response: Response, label: string): Promise<unknown> 
       (body as { error?: { message?: string } })?.error?.message ??
       `${label} failed with status ${response.status}`;
 
-    throw new EmbeddingError(message, response.status);
+    throw new EmbeddingError(message, response.status, retryAfterMs(response, body));
   }
 
   return response.json();
+}
+
+type RetryInfo = { retryDelay?: string };
+
+/**
+ * How long to wait, in the two forms providers express it: the standard `Retry-After`
+ * header, and Google's RetryInfo detail carrying a duration like "45.6s".
+ */
+function retryAfterMs(response: Response, body: unknown): number | undefined {
+  const details = (body as { error?: { details?: RetryInfo[] } })?.error?.details ?? [];
+  const retryDelay = details.find((detail) => detail?.retryDelay)?.retryDelay;
+  const fromBody = retryDelay ? Number.parseFloat(retryDelay) * 1000 : Number.NaN;
+  const header = response.headers.get("retry-after");
+  const fromHeader = header ? Number(header) * 1000 : Number.NaN;
+  const wait = Number.isFinite(fromBody) ? fromBody : fromHeader;
+
+  if (!Number.isFinite(wait) || wait <= 0) return undefined;
+
+  return Math.min(wait, MAX_RETRY_AFTER_MS);
 }
 
 function checkWidth(embedding: number[]): number[] {

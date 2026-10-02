@@ -280,6 +280,77 @@ describe("createEmbedder: gemini", () => {
     await expect(embed(["a"])).rejects.toThrow(/1536/);
   });
 
+  it("waits as long as Gemini asks before retrying, not its own guess", async () => {
+    const slept: number[] = [];
+    const quota = new Response(
+      JSON.stringify({
+        error: {
+          message: "You exceeded your current quota",
+          details: [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "45.6s" }],
+        },
+      }),
+      { status: 429 },
+    );
+    const { calls, fetchImpl } = recorder([quota, geminiResponse(1)]);
+    const embed = createEmbedder({
+      provider: "gemini",
+      apiKey: "gemini-key",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+
+    await embed(["a"]);
+
+    expect(calls).toHaveLength(2);
+    // A free-tier quota window is tens of seconds; the default backoff of ~1s would burn
+    // every attempt long before it reopened.
+    expect(slept[0]).toBeGreaterThanOrEqual(45_600);
+  });
+
+  it("honours a Retry-After header when there is no structured delay", async () => {
+    const slept: number[] = [];
+    const limited = new Response(JSON.stringify({ error: { message: "slow down" } }), {
+      status: 429,
+      headers: { "Retry-After": "30" },
+    });
+    const { fetchImpl } = recorder([limited, geminiResponse(1)]);
+    const embed = createEmbedder({
+      provider: "gemini",
+      apiKey: "gemini-key",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+
+    await embed(["a"]);
+
+    expect(slept[0]).toBe(30_000);
+  });
+
+  it("ignores an absurd retry delay rather than hanging for it", async () => {
+    const slept: number[] = [];
+    const limited = new Response(JSON.stringify({ error: { message: "later" } }), {
+      status: 429,
+      headers: { "Retry-After": "86400" },
+    });
+    const { fetchImpl } = recorder([limited, geminiResponse(1)]);
+    const embed = createEmbedder({
+      provider: "gemini",
+      apiKey: "gemini-key",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+
+    await embed(["a"]);
+
+    expect(slept[0]).toBeLessThanOrEqual(90_000);
+  });
+
   it("names the key it needs when there is none", () => {
     expect(() => createEmbedder({ provider: "gemini", apiKey: "" })).toThrow(/GEMINI_API_KEY/);
   });

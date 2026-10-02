@@ -58,10 +58,9 @@ needs `GEMINI_API_KEY` and runs inside Google's free tier for a corpus this size
 `--embedder=openai` needs an `OPENAI_API_KEY` with credit, and also covers any
 OpenAI-compatible endpoint through `OPENAI_BASE_URL`.
 
-**No real baseline is recorded yet.** The OpenAI attempt made while building this set was
-rejected with "You have no credits remaining", so neither `baseline.openai.json` nor
-`baseline.gemini.json` exists; the runner prints its scores and tells you to record one.
-Record before a tuning change and re-run after:
+`baseline.gemini.json` is recorded. `baseline.openai.json` is not — that attempt was
+rejected with "You have no credits remaining". Record before a tuning change and re-run
+after:
 
 ```bash
 DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=gemini --record   # before
@@ -75,6 +74,25 @@ reflect the asymmetry the model was trained with.
 
 A non-zero exit means a tracked metric fell below the baseline. Improvements never fail;
 record them with `--record` so the bar moves up.
+
+## What the first real run found
+
+With `gemini-embedding-001`, ranking is perfect on this set: every one of the 36
+answerable questions puts the right document *and the right section* first. The set
+therefore has no headroom — it can catch a regression, but it cannot show an improvement.
+Making it harder (more documents, sections that paraphrase each other) is the way to get
+that headroom back.
+
+It also found a real defect that no unit test had: **`abstentionRate` is 0%.** All six
+out-of-domain questions retrieved six chunks each — "What is the airspeed velocity of an
+unladen swallow?" comes back with `performance.md`. The `MIN_SIMILARITY = 0.25` floor in
+`lib/rag/retrieve.ts` was chosen without data, and real embedding models put unrelated
+English prose well above it. The fake embedder scores 100% here, which is exactly how the
+problem stayed hidden: it has no such floor effect.
+
+This is what the floor is for — without it the model is handed six irrelevant passages and
+asked to cite them. Fixing it means measuring the similarity distribution of in-domain
+versus out-of-domain questions and moving the floor into the gap, then re-recording.
 
 ## Adding to the set
 
