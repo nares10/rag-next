@@ -11,6 +11,7 @@
     "lint": "eslint",
     "db:seed": "bun scripts/seed.ts",
     "stub": "bun scripts/stub-provider.ts",
+    "eval": "bun scripts/eval-retrieval.ts",
     "db:test:deploy": "bun --env-file=.env.test prisma migrate deploy",
     "test": "bun test",
     "test:db": "bun run db:test:deploy && bun --env-file=.env.test test tests/",

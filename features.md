@@ -26,7 +26,8 @@
 
 ## Next:
 - RAG: direct-to-storage upload, to lift the 4 MB file limit to the pipeline's 20 MB
-- RAG: build the retrieval eval set before tuning chunk size or the similarity floor
+- RAG: record an eval baseline with real embeddings, then tune chunk size and the
+  similarity floor against it (`bun run eval --embedder=openai --record`)
 - Add message search functionality
 - i w
 - Containerise the application using Docker

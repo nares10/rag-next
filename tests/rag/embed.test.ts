@@ -130,6 +130,14 @@ describe("createEmbedder", () => {
     await expect(embed(["a"])).rejects.toThrow(/1536/);
   });
 
+  it("falls back to the default endpoint when the base url is set to an empty string", async () => {
+    const { calls, embed } = embedderWith([okResponse(1)], { baseUrl: "" });
+
+    await embed(["a"]);
+
+    expect(calls[0].url).toBe("https://api.openai.com/v1/embeddings");
+  });
+
   it("refuses to run without an api key", () => {
     expect(() => createEmbedder({ apiKey: "" })).toThrow(/key/i);
   });

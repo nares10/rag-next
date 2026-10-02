@@ -1,4 +1,6 @@
 /// <reference types="bun" />
+import { fakeEmbedding } from "../tests/support/fake-embedder";
+
 /**
  * A deterministic, OpenAI-compatible stub used by the integration tests.
  *
@@ -6,10 +8,9 @@
  * injection, streamed citations — without calling a real provider. Start it alongside the
  * dev server and point the app at it with OPENAI_BASE_URL (see README).
  *
- *   POST /v1/embeddings        bag-of-content-words vectors: texts about the same thing
- *                              embed close together, so retrieval behaves like the real
- *                              thing — a paraphrased question still matches its passage,
- *                              and unrelated text stays below the similarity floor
+ *   POST /v1/embeddings        deterministic vectors from tests/support/fake-embedder.ts:
+ *                              texts about the same thing embed close together, so
+ *                              retrieval behaves like the real thing
  *   POST /v1/chat/completions  streamed: a fixed answer as SSE. Non-streamed (used for
  *                              query rewriting): echoes the prompt's "Final message",
  *                              which is what a sane rewriter would return
@@ -17,53 +18,9 @@
  *   POST /_reset               clears that log
  */
 const PORT = Number(process.env.STUB_PROVIDER_PORT ?? 4010);
-const DIMENSIONS = 1536;
 const ANSWER = "Receipts must be filed within 30 days [1].";
 
 const received: Array<{ path: string; body: unknown }> = [];
-
-function hashWord(word: string): number {
-  let hash = 2166136261;
-
-  for (const char of word) {
-    hash ^= char.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-
-  return Math.abs(hash) % DIMENSIONS;
-}
-
-// Function words carry no topic signal; keeping them would make every pair of English
-// sentences look similar, which is exactly what a real embedding model avoids.
-const STOPWORDS = new Set([
-  "a", "an", "the", "of", "to", "do", "does", "did", "i", "you", "we", "it", "is", "are",
-  "was", "were", "be", "been", "have", "has", "had", "how", "what", "when", "where", "who",
-  "why", "for", "on", "in", "at", "by", "and", "or", "but", "if", "my", "our", "their",
-  "this", "that", "these", "those", "there", "with", "from", "as", "can", "will", "would",
-  "should", "about", "any", "all", "long", "much", "many",
-]);
-
-/** Crude stemmer: enough that "filed" and "file" land on the same axis. */
-function stem(word: string): string {
-  const trimmed = word.replace(/(ing|ed|es|s)$/, "");
-
-  return (trimmed.length >= 3 ? trimmed : word).replace(/e$/, "");
-}
-
-/** Unit-length bag-of-content-words vector. Shared topic means high cosine similarity. */
-function embed(text: string): number[] {
-  const vector = new Array(DIMENSIONS).fill(0);
-
-  for (const word of text.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
-    if (STOPWORDS.has(word) || word.length < 2) continue;
-
-    vector[hashWord(stem(word))] += 1;
-  }
-
-  const magnitude = Math.hypot(...vector) || 1;
-
-  return vector.map((value) => value / magnitude);
-}
 
 function sse(payload: unknown): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
@@ -90,7 +47,7 @@ Bun.serve({
       const input: string[] = Array.isArray(body.input) ? body.input : [body.input];
 
       return Response.json({
-        data: input.map((text, index) => ({ index, embedding: embed(String(text)) })),
+        data: input.map((text, index) => ({ index, embedding: fakeEmbedding(String(text)) })),
       });
     }
 

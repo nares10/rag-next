@@ -1,0 +1,290 @@
+[
+  {
+    "id": "hb-receipt-window",
+    "corpus": "handbook",
+    "question": "How long do I have to send in a receipt?",
+    "document": "expenses.md",
+    "heading": "Filing a claim"
+  },
+  {
+    "id": "hb-alcohol",
+    "corpus": "handbook",
+    "question": "Can I claim back the wine from a client dinner?",
+    "document": "expenses.md",
+    "heading": "Limits"
+  },
+  {
+    "id": "hb-when-paid",
+    "corpus": "handbook",
+    "question": "When will the money for a claim I just filed actually reach me?",
+    "document": "expenses.md",
+    "heading": "Payment"
+  },
+  {
+    "id": "hb-premium-economy",
+    "corpus": "handbook",
+    "question": "Do I need permission to fly premium economy to Singapore?",
+    "document": "travel.md",
+    "heading": "Booking flights"
+  },
+  {
+    "id": "hb-expensive-hotel",
+    "corpus": "handbook",
+    "question": "The conference hotel is 240 a night. What do I need to do?",
+    "document": "travel.md",
+    "heading": "Hotels"
+  },
+  {
+    "id": "hb-late-taxi",
+    "corpus": "handbook",
+    "question": "Can I take a cab home after finishing very late?",
+    "document": "travel.md",
+    "heading": "Ground transport"
+  },
+  {
+    "id": "hb-unused-holiday",
+    "corpus": "handbook",
+    "question": "What happens to holiday I have not used by the end of December?",
+    "document": "leave.md",
+    "heading": "Carrying days over"
+  },
+  {
+    "id": "hb-doctor-note",
+    "corpus": "handbook",
+    "question": "How many days off ill before I need a doctor to confirm it?",
+    "document": "leave.md",
+    "heading": "Sick leave"
+  },
+  {
+    "id": "hb-slow-laptop",
+    "corpus": "handbook",
+    "question": "My laptop is two years old and painfully slow. Can I get a new one?",
+    "document": "equipment.md",
+    "heading": "Replacement cycle"
+  },
+  {
+    "id": "hb-stolen-laptop",
+    "corpus": "handbook",
+    "question": "Someone took my work machine from a cafe. What do I do first?",
+    "document": "equipment.md",
+    "heading": "Loss and damage"
+  },
+  {
+    "id": "hb-share-password",
+    "corpus": "handbook",
+    "question": "Is it fine to give my manager my password so they can check something?",
+    "document": "security.md",
+    "heading": "Accounts"
+  },
+  {
+    "id": "hb-access-revoked",
+    "corpus": "handbook",
+    "question": "When exactly do I lose my logins when I resign?",
+    "document": "offboarding.md",
+    "heading": "Access"
+  },
+  {
+    "id": "hb-who-promotes",
+    "corpus": "handbook",
+    "question": "Who actually decides whether I move up a level?",
+    "document": "performance.md",
+    "heading": "Promotion"
+  },
+  {
+    "id": "hb-referral-contractor",
+    "corpus": "handbook",
+    "question": "Do I still get the finder's fee if the person I recommended joins as a contractor?",
+    "document": "hiring.md",
+    "heading": "Referrals"
+  },
+  {
+    "id": "hb-early-start",
+    "corpus": "handbook",
+    "question": "Can I start at seven in the morning and finish mid-afternoon?",
+    "document": "remote-work.md",
+    "heading": "Core hours"
+  },
+  {
+    "id": "hb-desk-money",
+    "corpus": "handbook",
+    "question": "Is there any budget for a proper chair at home?",
+    "document": "remote-work.md",
+    "heading": "Home office"
+  },
+  {
+    "id": "hb-buddy",
+    "corpus": "handbook",
+    "question": "Is someone assigned to answer my basic questions when I join?",
+    "document": "onboarding.md",
+    "heading": "The first week"
+  },
+  {
+    "id": "hb-notice",
+    "corpus": "handbook",
+    "question": "How much notice do I owe after four years here?",
+    "document": "offboarding.md",
+    "heading": "Notice"
+  },
+  {
+    "id": "pf-undo-release",
+    "corpus": "platform",
+    "question": "What is the quickest way to undo a bad release?",
+    "document": "deploys.md",
+    "heading": "Rollback"
+  },
+  {
+    "id": "pf-xmas-ship",
+    "corpus": "platform",
+    "question": "Can I ship something the week before Christmas?",
+    "document": "deploys.md",
+    "heading": "Freeze windows"
+  },
+  {
+    "id": "pf-team-quota",
+    "corpus": "platform",
+    "question": "How many calls a minute does a team key allow?",
+    "document": "rate-limits.md",
+    "heading": "Tiers"
+  },
+  {
+    "id": "pf-count-own",
+    "corpus": "platform",
+    "question": "Should my client keep its own tally of requests to stay under quota?",
+    "document": "rate-limits.md",
+    "heading": "Headers"
+  },
+  {
+    "id": "pf-short-spike",
+    "corpus": "platform",
+    "question": "What happens if I go over the limit for just a few seconds?",
+    "document": "rate-limits.md",
+    "heading": "Bursts"
+  },
+  {
+    "id": "pf-swap-token",
+    "corpus": "platform",
+    "question": "How do I swap a credential without dropping requests?",
+    "document": "auth.md",
+    "heading": "Rotation"
+  },
+  {
+    "id": "pf-who-paged",
+    "corpus": "platform",
+    "question": "Does a partially degraded service wake someone up at night?",
+    "document": "incidents.md",
+    "heading": "Paging"
+  },
+  {
+    "id": "pf-body-retention",
+    "corpus": "platform",
+    "question": "How long do we hang on to request payloads?",
+    "document": "data-retention.md",
+    "heading": "Logs"
+  },
+  {
+    "id": "pf-delete-backups",
+    "corpus": "platform",
+    "question": "A customer asked to be deleted. What happens to the copies in backups?",
+    "document": "data-retention.md",
+    "heading": "Deletion requests"
+  },
+  {
+    "id": "pf-no-averages",
+    "corpus": "platform",
+    "question": "Why do the dashboards not show a mean response time?",
+    "document": "observability.md",
+    "heading": "Metrics"
+  },
+  {
+    "id": "pf-duplicate-message",
+    "corpus": "platform",
+    "question": "My consumer handled the same message twice. Is that a defect?",
+    "document": "queues.md",
+    "heading": "Delivery"
+  },
+  {
+    "id": "pf-exhausted-retries",
+    "corpus": "platform",
+    "question": "Where does a message end up once it has run out of retries?",
+    "document": "queues.md",
+    "heading": "Dead letters"
+  },
+  {
+    "id": "pf-hot-key-expiry",
+    "corpus": "platform",
+    "question": "What stops everything hitting the database at once when a popular cached entry expires?",
+    "document": "caching.md",
+    "heading": "Stampedes"
+  },
+  {
+    "id": "pf-connections",
+    "corpus": "platform",
+    "question": "Why does my service run out of database connections after a restart?",
+    "document": "runbook-db.md",
+    "heading": "Connection limits"
+  },
+  {
+    "id": "pf-slow-query",
+    "corpus": "platform",
+    "question": "A query got slow and nothing was deployed. Where do I look?",
+    "document": "runbook-db.md",
+    "heading": "Slow queries"
+  },
+  {
+    "id": "pf-cross-service-bucket",
+    "corpus": "platform",
+    "question": "How does one service read a file another service owns?",
+    "document": "storage.md",
+    "heading": "Buckets"
+  },
+  {
+    "id": "pf-postmortem-window",
+    "corpus": "platform",
+    "question": "How soon after a major outage is the write-up due?",
+    "document": "incidents.md",
+    "heading": "Postmortems"
+  },
+  {
+    "id": "pf-trace-sampling",
+    "corpus": "platform",
+    "question": "Are failing requests traced at the same rate as healthy ones?",
+    "document": "observability.md",
+    "heading": "Tracing"
+  },
+  {
+    "id": "oo-swallow",
+    "corpus": "handbook",
+    "question": "What is the airspeed velocity of an unladen swallow?",
+    "answerable": false
+  },
+  {
+    "id": "oo-sourdough",
+    "corpus": "handbook",
+    "question": "What is the recipe for sourdough bread?",
+    "answerable": false
+  },
+  {
+    "id": "oo-passport",
+    "corpus": "handbook",
+    "question": "How do I renew my passport?",
+    "answerable": false
+  },
+  {
+    "id": "oo-kubernetes",
+    "corpus": "platform",
+    "question": "How do I configure a Kubernetes ingress controller?",
+    "answerable": false
+  },
+  {
+    "id": "oo-worldcup",
+    "corpus": "platform",
+    "question": "Who won the 2019 cricket world cup?",
+    "answerable": false
+  },
+  {
+    "id": "oo-shareprice",
+    "corpus": "platform",
+    "question": "What is the company's share price today?",
+    "answerable": false
+  }
+]

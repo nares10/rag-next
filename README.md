@@ -100,6 +100,9 @@ Two things to know:
 Postgres needs the `pgvector` extension; the migration creates it, so the database role
 must be allowed to `CREATE EXTENSION`.
 
+Retrieval quality is measured by a checked-in eval set — `bun run eval`, documented in
+`tests/eval/README.md`. Run it before and after changing anything in `lib/rag/`.
+
 See `docs/rag-spec.md` for the pipeline and the current limitations.
 
 ## 5. Run the app
@@ -152,6 +155,7 @@ neither process and run on their own.
 | `bun run lint`         | Run ESLint                                         |
 | `bun run db:seed`      | Seed the database                                  |
 | `bun run stub`         | Start the stub AI provider used by the tests       |
+| `bun run eval`         | Score retrieval against the eval set (`tests/eval/`) |
 | `bun run db:test:deploy` | Apply migrations to the test database (`.env.test`) |
 | `bun run test`         | Run tests                                          |
 | `bun run test:db`      | Deploy test DB migrations, then run tests          |

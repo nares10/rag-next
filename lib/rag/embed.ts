@@ -41,7 +41,9 @@ export function createEmbedder(options: EmbedderOptions = {}): Embedder {
   const batchSize = options.batchSize ?? EMBEDDING_BATCH_SIZE;
   const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const endpoint = `${options.baseUrl ?? process.env.OPENAI_BASE_URL ?? DEFAULT_BASE_URL}/embeddings`;
+  // `||` not `??`: an env var set to an empty string is a blank line in a .env file, not
+  // a deliberate choice of "" as the base URL.
+  const endpoint = `${options.baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL}/embeddings`;
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
 
   if (!apiKey) {

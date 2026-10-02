@@ -353,9 +353,13 @@ Bun tests under `tests/`, following the existing `tests/setup.ts` DB harness:
   upstream request body, `sources` frame emitted first, citations persisted, and
   `useRag:false` bypassing retrieval entirely.
 
-**Retrieval eval**: a checked-in set of ~30 question/expected-document pairs over two
-fixture corpora, scored for recall@6 and citation correctness. Run manually per tuning
-change; a regression below the recorded baseline blocks the change.
+**Retrieval eval**: `tests/eval/` — two fixture corpora of ten documents each, 42
+questions (36 answerable with an expected document and heading, 6 out-of-domain), scored
+for recall@1/3/6, MRR, heading accuracy and abstention. `bun run eval` runs it with the
+deterministic embedder and compares against `baseline.fake.json`;
+`bun run eval --embedder=openai` measures real retrieval quality. A regression below the
+baseline exits non-zero, and `tests/rag/eval.test.ts` asserts the fake-embedder baseline on
+every test run. See `tests/eval/README.md`.
 
 ---
 
@@ -398,7 +402,8 @@ where the two disagree.
 | Chat-side orchestration | `lib/rag/chat-context.ts`, `app/api/chat/route.ts` |
 | API | `app/api/rag/{collections,documents,search}/`, `PATCH /api/conversations/[id]` |
 | UI | `components/DocumentsDrawer.tsx`, `ChatComposer`, `ChatMessages`, `MarkdownMessage`, `hooks/useRagDocuments.ts` |
-| Tests | `tests/rag/*` (198 tests across the suite), `scripts/stub-provider.ts` |
+| Tests | `tests/rag/*`, `scripts/stub-provider.ts` |
+| Retrieval eval | `tests/eval/`, `scripts/eval-retrieval.ts` |
 
 ### Deliberate departures
 
@@ -436,10 +441,14 @@ where the two disagree.
 10. **Fetched URLs are extracted by the response's `Content-Type`**, not the type declared
     at submission: a `.txt` page submitted as a URL would otherwise go through the HTML
     extractor, which strips every `<bracketed>` word.
-11. **The retrieval eval set (§10) does not exist.** Retrieval is covered by behavioural
-    tests over hand-written vectors, which pin ordering, filtering and isolation but say
-    nothing about answer quality on real documents. Tuning `k`, the 0.25 floor or the chunk
-    size still needs that set.
+11. **The eval set's only recorded baseline is measured with a fake embedder.** No
+    `baseline.openai.json` exists yet: recording one needs an `OPENAI_API_KEY` with credit
+    (the attempt made while building the set was rejected for billing). It guards the
+    ranking logic, not retrieval quality: the deterministic embedder knows only vocabulary
+    overlap, so its absolute scores are low by construction. Recording a baseline with
+    `--embedder=openai` is one command and is what any real tuning of `k`, the 0.25 floor
+    or the chunk size should be judged against. `tests/eval/README.md` spells out the
+    difference.
 
 ### Operational notes
 
