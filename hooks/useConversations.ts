@@ -4,12 +4,24 @@ import type { ChatUser, Conversation, Message, Provider } from "@/lib/chat-types
 
 const initialMessages: Message[] = [];
 
+/** Restores a stored message, including the citations the reply was grounded in. */
+export function toMessage(message: Conversation["messages"][number]): Message {
+	return {
+		id: message.id,
+		role: message.role as "assistant" | "user",
+		text: message.content,
+		citations: message.citations ?? undefined,
+		grounding: message.citations?.length ? "grounded" : undefined,
+	};
+}
+
 export function useConversations(user: ChatUser | null, conversationId?: string) {
 	const router = useRouter();
 	const [conversations, setConversations] = useState<Conversation[]>([]);
 	const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
 	const [provider, setProvider] = useState<Provider>("openrouter");
+	const [attachedCollectionId, setAttachedCollectionId] = useState<string | null>(null);
 	const [isLoadingConversations, setIsLoadingConversations] = useState(false);
 
 	useEffect(() => {
@@ -36,13 +48,8 @@ export function useConversations(user: ChatUser | null, conversationId?: string)
 				const conversation = conversationData.conversation as Conversation;
 				setCurrentConversationId(conversation.id);
 				setProvider(conversation.provider as Provider);
-				setMessages(
-					conversation.messages.map((message) => ({
-						id: message.id,
-						role: message.role as "assistant" | "user",
-						text: message.content,
-					})),
-				);
+				setAttachedCollectionId(conversation.collectionId ?? null);
+				setMessages(conversation.messages.map(toMessage));
 			} catch (error) {
 				console.error("Failed to load conversations", error);
 			} finally {
@@ -68,6 +75,29 @@ export function useConversations(user: ChatUser | null, conversationId?: string)
 		return true;
 	};
 
+	/**
+	 * Attaches a document collection to the open conversation, or detaches it with null.
+	 * A conversation that has not been created yet (no id) only needs the local value —
+	 * the chat request carries the collection id and persists it on creation.
+	 */
+	const attachCollection = async (collectionId: string | null) => {
+		if (currentConversationId) {
+			const response = await fetch(`/api/conversations/${currentConversationId}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ collectionId }),
+			});
+
+			if (!response.ok) return false;
+		}
+
+		setAttachedCollectionId(collectionId);
+		setConversations((current) =>
+			current.map((item) => (item.id === currentConversationId ? { ...item, collectionId } : item)),
+		);
+		return true;
+	};
+
 	const deleteConversation = async (conversation: Conversation) => {
 		const response = await fetch(`/api/conversations/${conversation.id}`, {
 			method: "DELETE",
@@ -88,6 +118,9 @@ export function useConversations(user: ChatUser | null, conversationId?: string)
 		setMessages,
 		provider,
 		setProvider,
+		attachedCollectionId,
+		setAttachedCollectionId,
+		attachCollection,
 		isLoadingConversations,
 		renameConversation,
 		deleteConversation,

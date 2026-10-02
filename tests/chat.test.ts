@@ -91,7 +91,7 @@ describe("POST /api/chat", () => {
     expect(dbUser?.freeMessagesUsed).toBe(FREE_MESSAGE_LIMIT);
   });
 
-  it("500s when under the limit but no provider API key is configured, after persisting the conversation and message", async () => {
+  it("500s when under the limit but no provider API key is configured, leaving no orphaned message", async () => {
     const { user, headers } = await createAuthedUser("chat-no-key@example.com");
 
     const response = await fetch(`${TEST_BASE_URL}/api/chat`, {
@@ -111,10 +111,10 @@ describe("POST /api/chat", () => {
     const conversations = await prisma.conversation.findMany({ where: { userId: user.id } });
     expect(conversations).toHaveLength(1);
 
+    // The route persists the user message and the reply together, once a reply has
+    // actually arrived, so a failed provider call leaves the conversation empty.
     const messages = await prisma.message.findMany({ where: { conversationId: conversations[0].id } });
-    expect(messages).toHaveLength(1);
-    expect(messages[0].role).toBe("user");
-    expect(messages[0].content).toBe("Hello there");
+    expect(messages).toHaveLength(0);
   });
 
   it("reuses an existing conversation owned by the caller instead of creating a new one", async () => {

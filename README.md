@@ -7,6 +7,7 @@ streaming responses, conversation history, and a profile dashboard.
 ## Features
 
 - Chat UI with streaming responses across multiple AI providers
+- Document Q&A: attach your own documents to a conversation and get answers with citations
 - Email/password authentication (Argon2 password hashing, DB-backed sessions)
 - Conversation history — create, rename, delete
 - Per-user API key management for each provider
@@ -20,7 +21,7 @@ See `features.md` for the full list and what's still in progress.
 - [Prisma 6](https://www.prisma.io) + PostgreSQL
 - [Bun](https://bun.sh) for scripts and tests
 - Tailwind CSS 4
-- Argon2 for password hashing, Resend for transactional email
+- Argon2 for password hashing
 
 ## Prerequisites
 
@@ -50,6 +51,10 @@ OPENAI_API_KEY=<your openai api key>
 OPENAI_MODEL=<openai model>
 
 AI_PROVIDER=openroute
+
+# Optional
+OPENAI_BASE_URL=<an OpenAI-compatible endpoint; defaults to https://api.openai.com/v1>
+RAG_PROCESS_SECRET=<shared secret allowing a queue or cron to trigger document processing>
 ```
 
 `.env*` files are git-ignored — never commit real credentials.
@@ -75,7 +80,26 @@ bun run db:seed
 By default the seed script skips databases that already contain users. To wipe and
 reseed, set `SEED_FORCE_RESET=true`.
 
-## 4. Run the app
+## 4. Document Q&A (RAG)
+
+Create a collection in the **Documents** panel next to the provider picker, paste in some
+text (or give a URL), and attach the collection to the conversation. The assistant then
+answers from those documents and cites the passages it used.
+
+Two things to know:
+
+- **Embeddings always use the server's `OPENAI_API_KEY`**, even when you chat through
+  Anthropic or OpenRouter — a collection is only searchable if every vector in it came
+  from the same model. Without that key, chat still works; document search reports itself
+  as unavailable.
+- **Text, markdown and HTML only.** PDF and Word files are not read yet.
+
+Postgres needs the `pgvector` extension; the migration creates it, so the database role
+must be allowed to `CREATE EXTENSION`.
+
+See `docs/rag-spec.md` for the pipeline and the current limitations.
+
+## 5. Run the app
 
 ```bash
 bun run dev
@@ -86,12 +110,34 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Testing
 
 Tests run against a separate database whose `DATABASE_URL` must contain `test` in the
-database name (a safety check to prevent wiping real data).
+database name (a safety check to prevent wiping real data). `tests/preload.ts` points the
+Prisma client at `TEST_DATABASE_URL`.
+
+Most tests are integration tests over HTTP, so they need two processes running alongside
+them:
 
 ```bash
-bun test             # run tests without the migration step
+# 1. the stub AI provider: deterministic embeddings and a canned streamed reply,
+#    so no test ever calls a paid API
+bun run stub
+
+# 2. a dev server against the test database, pointed at the stub
+DATABASE_URL=$TEST_DATABASE_URL \
+OPENAI_API_KEY=stub-key \
+OPENAI_BASE_URL=http://localhost:4010/v1 \
+OPENROUTER_API_KEY= ANTHROPIC_API_KEY= AI_PROVIDER= \
+bun run dev
+
+# 3. then, in a third shell
+bun test             # whole suite
+bun test tests/rag   # just the RAG tests
 bun run test:watch   # watch mode
 ```
+
+`OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY` must stay empty: `tests/chat.test.ts` asserts
+the error path for a provider with no key configured. The pure unit tests
+(`tests/rag/{chunk,normalize,fuse,prompt,tokens,extract,embed,rewrite}.test.ts`) need
+neither process and run on their own.
 
 ## Available scripts
 
@@ -102,6 +148,7 @@ bun run test:watch   # watch mode
 | `bun run start`        | Start the production server                        |
 | `bun run lint`         | Run ESLint                                         |
 | `bun run db:seed`      | Seed the database                                  |
+| `bun run stub`         | Start the stub AI provider used by the tests       |
 | `bun run db:test:deploy` | Apply migrations to the test database (`.env.test`) |
 | `bun run test`         | Run tests                                          |
 | `bun run test:db`      | Deploy test DB migrations, then run tests          |
@@ -114,6 +161,8 @@ app/          Next.js App Router pages and API routes
 components/   React components
 hooks/        React hooks
 lib/          Server-side helpers (Prisma client, auth/session, password hashing)
+lib/rag/      Document ingestion and retrieval pipeline
+docs/         Feature specs
 prisma/       Prisma schema and generated client
 migrations/   Database migrations
 tests/        Test suite

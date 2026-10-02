@@ -1,18 +1,13 @@
+import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from "../lib/rag/embed";
 import { hashPassword } from "../lib/password";
 import { prisma } from "../lib/prisma";
 import "dotenv";
-import {
-  CODE_TTL_MS,
-  VERIFIED_TOKEN_TTL_MS,
-  generateVerificationToken,
-  hashCode,
-  hashToken,
-} from "../lib/verification";
 
 export const TEST_BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 
 function assertTestDatabase() {
-  const databaseUrl = process.env.TEST_DATABASE_URL;
+  // Check the URL the Prisma client actually connects with (see tests/preload.ts).
+  const databaseUrl = process.env.DATABASE_URL;
   const databaseName = databaseUrl ? new URL(databaseUrl).pathname : "";
 
   if (!databaseName.toLowerCase().includes("test")) {
@@ -24,12 +19,13 @@ function assertTestDatabase() {
 
 export async function resetTestDatabase() {
   assertTestDatabase();
-  await prisma.pendingRegistration.deleteMany();
   await prisma.message.deleteMany();
   await prisma.conversation.deleteMany();
+  await prisma.chunk.deleteMany();
+  await prisma.document.deleteMany();
+  await prisma.collection.deleteMany();
   await prisma.apiKey.deleteMany();
   await prisma.session.deleteMany();
-  await prisma.emailVerificationToken.deleteMany();
   await prisma.user.deleteMany();
 }
 
@@ -39,46 +35,8 @@ export async function createTestUser(email: string, name = "Test User") {
       email,
       name,
       passwordHash: await hashPassword("password123"),
-      emailVerified: true,
     },
   });
-}
-
-export async function createPendingRegistration(
-  email: string,
-  name: string,
-  code: string,
-  overrides: { expiresAt?: Date } = {},
-) {
-  return await prisma.pendingRegistration.create({
-    data: {
-      email,
-      name,
-      codeHash: hashCode(code),
-      expiresAt: overrides.expiresAt ?? new Date(Date.now() + CODE_TTL_MS),
-    },
-  });
-}
-
-/**
- * Creates a pending registration that already passed the code step, and returns
- * the token that /api/auth/complete-registration expects.
- */
-export async function verifyPendingRegistration(email: string, name: string) {
-  const verificationToken = generateVerificationToken();
-
-  await prisma.pendingRegistration.create({
-    data: {
-      email,
-      name,
-      codeHash: hashCode("000000"),
-      expiresAt: new Date(Date.now() + VERIFIED_TOKEN_TTL_MS),
-      verifiedAt: new Date(),
-      verificationTokenHash: hashToken(verificationToken),
-    },
-  });
-
-  return verificationToken;
 }
 
 export async function createSession(userId: string, expiresAt?: Date) {
@@ -156,4 +114,91 @@ export async function setFreeMessagesUsed(userId: string, count: number) {
     where: { id: userId },
     data: { freeMessagesUsed: count },
   });
+}
+
+export async function createTestCollection(
+  userId: string,
+  overrides: { name?: string; description?: string } = {},
+) {
+  return prisma.collection.create({
+    data: {
+      userId,
+      name: overrides.name ?? "Test collection",
+      description: overrides.description,
+    },
+  });
+}
+
+export async function createTestDocument(
+  collection: { id: string; userId: string },
+  overrides: {
+    title?: string;
+    status?: string;
+    mimeType?: string;
+    sourceType?: string;
+    contentHash?: string;
+    byteSize?: number;
+  } = {},
+) {
+  return prisma.document.create({
+    data: {
+      collectionId: collection.id,
+      userId: collection.userId,
+      title: overrides.title ?? "Test document",
+      sourceType: overrides.sourceType ?? "paste",
+      mimeType: overrides.mimeType ?? "text/markdown",
+      byteSize: overrides.byteSize ?? 128,
+      contentHash: overrides.contentHash ?? crypto.randomUUID(),
+      status: overrides.status ?? "ready",
+    },
+  });
+}
+
+/**
+ * A 1536-dimension unit vector with a single non-zero axis. Two such vectors have cosine
+ * similarity 1 when they share an axis and 0 when they don't, which makes expected
+ * retrieval orderings exact instead of approximate.
+ */
+export function axisVector(axis: number, magnitude = 1): number[] {
+  const vector = new Array(EMBEDDING_DIMENSIONS).fill(0);
+  vector[axis] = magnitude;
+
+  return vector;
+}
+
+/** A vector that leans mostly on `axis` but is not identical to it, for ordering tests. */
+export function blendedVector(axis: number, otherAxis: number, weight = 0.7): number[] {
+  const vector = new Array(EMBEDDING_DIMENSIONS).fill(0);
+  vector[axis] = weight;
+  vector[otherAxis] = 1 - weight;
+
+  return vector;
+}
+
+export async function insertTestChunk(input: {
+  documentId: string;
+  collectionId: string;
+  ordinal: number;
+  content: string;
+  embedding: number[];
+  embeddingModel?: string;
+  page?: number | null;
+  heading?: string | null;
+}) {
+  const id = crypto.randomUUID();
+
+  await prisma.$executeRaw`
+    INSERT INTO "Chunk" ("id", "documentId", "collectionId", "ordinal", "content", "tokenCount",
+                         "page", "heading", "embedding", "embeddingModel")
+    VALUES (${id}, ${input.documentId}, ${input.collectionId}, ${input.ordinal}, ${input.content},
+            ${Math.ceil(input.content.length / 4)}, ${input.page ?? null}, ${input.heading ?? null},
+            ${JSON.stringify(input.embedding)}::vector, ${input.embeddingModel ?? EMBEDDING_MODEL})
+  `;
+
+  return id;
+}
+
+/** A fake embedder that answers with a fixed vector, whatever the query text. */
+export function fixedEmbedder(vector: number[]) {
+  return async (texts: string[]) => texts.map(() => vector);
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ChatUser, Message, Provider } from "@/lib/chat-types";
+import type { ChatUser, Citation, Grounding, Message, Provider } from "@/lib/chat-types";
 import { FREE_MESSAGE_LIMIT } from "@/lib/freeMessages";
 
 interface UseChatStreamOptions {
@@ -7,6 +7,8 @@ interface UseChatStreamOptions {
 	provider: Provider;
 	selectedApiKey: string | null;
 	currentConversationId: string | null;
+	collectionId: string | null;
+	useRag: boolean;
 	setInput: (value: string) => void;
 	setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
 	setUser: React.Dispatch<React.SetStateAction<ChatUser | null>>;
@@ -21,6 +23,8 @@ export function useChatStream({
 	provider,
 	selectedApiKey,
 	currentConversationId,
+	collectionId,
+	useRag,
 	setInput,
 	setMessages,
 	setUser,
@@ -57,7 +61,14 @@ export function useChatStream({
 			const response = await fetch("/api/chat", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ message: trimmed, provider, conversationId: currentConversationId, apiKey: selectedApiKey }),
+				body: JSON.stringify({
+					message: trimmed,
+					provider,
+					conversationId: currentConversationId,
+					apiKey: selectedApiKey,
+					collectionId,
+					useRag,
+				}),
 			});
 
 			if (!response.ok || !response.body) {
@@ -72,22 +83,53 @@ export function useChatStream({
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let fullText = "";
+			// A single read is not guaranteed to hold whole SSE frames, and the first frame
+			// (the citations) is the largest one on the wire. Without carrying the remainder
+			// over, a frame split across two reads fails JSON.parse and is silently dropped.
+			let buffer = "";
 
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
 
-				for (const line of decoder.decode(value, { stream: true }).split("\n\n")) {
+				buffer += decoder.decode(value, { stream: true });
+				const frames = buffer.split("\n\n");
+				buffer = frames.pop() ?? "";
+
+				for (const line of frames) {
 					const trimmedLine = line.trim();
 					if (!trimmedLine.startsWith("data:")) continue;
 					const rawPayload = trimmedLine.replace(/^data:\s*/, "").trim();
 					if (!rawPayload || rawPayload === "[DONE]") continue;
 
 					try {
-						const payload = JSON.parse(rawPayload) as { text?: string; conversationId?: string };
+						const payload = JSON.parse(rawPayload) as {
+							text?: string;
+							conversationId?: string;
+							sources?: Citation[];
+							grounded?: boolean;
+							degraded?: boolean;
+						};
 						if (payload.conversationId && !currentConversationId) {
 							setCurrentConversationId(payload.conversationId);
 							updateConversationUrl(payload.conversationId, true);
+						}
+						// Sent before the first token so the chips and the grounding notice can
+						// render while the answer is still streaming.
+						if (payload.sources) {
+							const grounding: Grounding = payload.degraded
+								? "degraded"
+								: payload.grounded
+									? "grounded"
+									: "none";
+							setMessages((current) =>
+								current.map((message) =>
+									message.id === assistantId
+										? { ...message, citations: payload.sources, grounding }
+										: message,
+								),
+							);
+							continue;
 						}
 						if (!payload.text) continue;
 						fullText += payload.text;

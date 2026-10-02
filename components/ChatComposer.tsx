@@ -7,9 +7,13 @@ interface ChatComposerProps {
   input: string;
   isLoading: boolean;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  attachedCollectionName: string | null;
+  useRag: boolean;
   onInputChange: (value: string) => void;
   onSubmit: () => void;
   onOpenProviderModal: () => void;
+  onOpenDocuments: () => void;
+  onToggleUseRag: () => void;
 }
 
 export default function ChatComposer({
@@ -18,9 +22,13 @@ export default function ChatComposer({
   input,
   isLoading,
   inputRef,
+  attachedCollectionName,
+  useRag,
   onInputChange,
   onSubmit,
   onOpenProviderModal,
+  onOpenDocuments,
+  onToggleUseRag,
 }: ChatComposerProps) {
   return (
     <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/80 px-4 py-4 backdrop-blur-sm lg:px-8 xl:px-10">
@@ -36,6 +44,28 @@ export default function ChatComposer({
                 {provider === "openrouter" ? "OpenRouter" : provider === "openai" ? "OpenAI" : "Claude"}
               </span>
             </button>
+
+            <button
+              onClick={onOpenDocuments}
+              className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 transition hover:bg-zinc-800"
+            >
+              <span>📄</span>
+              <span className="font-medium">{attachedCollectionName ?? "No documents"}</span>
+            </button>
+
+            {attachedCollectionName && (
+              <button
+                onClick={onToggleUseRag}
+                title="Answer from the attached documents"
+                className={`rounded-lg border px-3 py-1.5 text-xs transition ${
+                  useRag
+                    ? "border-emerald-700 bg-emerald-950/60 text-emerald-300"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                {useRag ? "Using documents" : "Documents off"}
+              </button>
+            )}
 
             {user && (
               <div className="text-xs text-zinc-400">

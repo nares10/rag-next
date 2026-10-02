@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client"
-  output   = "./generated"
+  provider      = "prisma-client"
+  output        = "./generated"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
@@ -10,20 +10,19 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String
-  name         String?
-  emailVerified    Boolean   @default(false)
-  freeMessagesUsed Int   @default(0)
-  
-  sessions     Session[]
-  conversations Conversation[]
-  apikeys      ApiKey[]
-  verificationTokens EmailVerificationToken[]
+  id               String  @id @default(uuid())
+  email            String  @unique
+  passwordHash     String
+  name             String?
+  freeMessagesUsed Int     @default(0)
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  sessions      Session[]
+  conversations Conversation[]
+  apikeys       ApiKey[]
+  collections   Collection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Session {
@@ -32,20 +31,24 @@ model Session {
   expiresAt DateTime
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
   @@index([userId])
 }
 
 model Conversation {
-  id           String    @id @default(uuid())
+  id           String      @id @default(uuid())
   userId       String
   title        String
   provider     String
   model        String?
   systemPrompt String?
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collectionId String?
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   messages     Message[]
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
   @@index([userId])
 }
 
@@ -55,8 +58,10 @@ model Message {
   role           String
   content        String
   tokens         Int?
+  citations      Json?
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   createdAt      DateTime     @default(now())
+
   @@index([conversationId])
 }
 
@@ -68,34 +73,86 @@ model ApiKey {
   provider  String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@index([userId])
-}
-
-model EmailVerificationToken {
-  id        String   @id @default(uuid())
-  userId    String
-  tokenHash String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
-model PendingRegistration {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String
-  codeHash  String
-  expiresAt DateTime
+model Collection {
+  id          String  @id @default(uuid())
+  userId      String
+  name        String
+  description String?
 
-  attempts   Int      @default(0)
-  lastSentAt DateTime @default(now())
-
-  verifiedAt            DateTime?
-  verificationTokenHash String?   @unique
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents     Document[]
+  conversations Conversation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Document {
+  id           String  @id @default(uuid())
+  collectionId String
+  // Denormalized so ownership can be checked inside the raw SQL search queries.
+  userId       String
+  title        String
+  sourceType   String
+  sourceUri    String?
+  mimeType     String
+  byteSize     Int
+  // sha256 of the normalized text: dedupe within a collection, and re-ingest detection.
+  contentHash  String
+  status       String  @default("pending")
+  error        String?
+  pageCount    Int?
+  chunkCount   Int     @default(0)
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  chunks     Chunk[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([collectionId, contentHash])
+  @@index([collectionId, status])
+}
+
+/// Two database objects on this model cannot be expressed in PSL and live only in
+/// `migrations/20261002160000_add_rag/migration.sql`:
+///   * `contentTsv` is a GENERATED column — declared below so it is not dropped, but
+///     `prisma migrate dev` still emits `ALTER COLUMN "contentTsv" DROP DEFAULT`, which
+///     Postgres rejects on a generated column.
+///   * `Chunk_embedding_hnsw_idx` (HNSW over `embedding`) has no PSL index type, so a
+///     generated migration will try to DROP it.
+/// Delete both statements from any migration Prisma generates for this model.
+model Chunk {
+  id             String                       @id @default(uuid())
+  documentId     String
+  // Denormalized so the similarity search filters on a single indexed column.
+  collectionId   String
+  ordinal        Int
+  content        String
+  tokenCount     Int
+  page           Int?
+  heading        String?
+  // Prisma 6 has no native vector type. The column is declared Unsupported so the
+  // schema stays in sync with the database; every read/write of it goes through raw
+  // SQL in lib/rag/retrieve.ts and lib/rag/ingest.ts.
+  embedding      Unsupported("vector(1536)")?
+  // Generated column (see the migration): Postgres keeps it in step with `content`.
+  // Declared here only so `prisma migrate dev` does not generate a migration that drops
+  // it — losing it breaks the keyword half of retrieval in lib/rag/retrieve.ts.
+  contentTsv     Unsupported("tsvector")?
+  embeddingModel String
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([documentId, ordinal])
+  @@index([collectionId])
+  @@index([contentTsv], map: "Chunk_contentTsv_idx", type: Gin)
 }

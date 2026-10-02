@@ -8,10 +8,12 @@ import ChatComposer from "@/components/ChatComposer";
 import ChatHeader from "@/components/ChatHeader";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSidebar from "@/components/ChatSidebar";
+import DocumentsDrawer from "@/components/DocumentsDrawer";
 import { useApiKeys } from "@/hooks/useApiKeys";
 import { useAuth } from "@/hooks/useAuth";
 import { useChatStream } from "@/hooks/useChatStream";
-import { useConversations } from "@/hooks/useConversations";
+import { toMessage, useConversations } from "@/hooks/useConversations";
+import { useRagDocuments } from "@/hooks/useRagDocuments";
 import type { Conversation, Provider } from "@/lib/chat-types";
 
 export default function Home({ conversationId }: { conversationId?: string }) {
@@ -19,12 +21,16 @@ export default function Home({ conversationId }: { conversationId?: string }) {
   const { user, setUser, isCheckingAuth } = useAuth();
   const { apiKeys, setApiKeys } = useApiKeys(user);
   const conversationsState = useConversations(user, conversationId);
+  const rag = useRagDocuments(user);
   const [input, setInput] = useState("");
   const [selectedApiKey, setSelectedApiKey] = useState<string | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showProviderModal, setShowProviderModal] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showDocuments, setShowDocuments] = useState(false);
+  // Per-message opt-out; the collection stays attached to the conversation.
+  const [useRag, setUseRag] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -38,6 +44,8 @@ export default function Home({ conversationId }: { conversationId?: string }) {
     provider: conversationsState.provider,
     selectedApiKey,
     currentConversationId: conversationsState.currentConversationId,
+    collectionId: conversationsState.attachedCollectionId,
+    useRag,
     setInput,
     setMessages: conversationsState.setMessages,
     setUser,
@@ -91,6 +99,15 @@ export default function Home({ conversationId }: { conversationId?: string }) {
     router.push("/");
   };
 
+  const attachedCollectionName =
+    rag.collections.find((collection) => collection.id === conversationsState.attachedCollectionId)?.name ??
+    null;
+
+  const handleAttachCollection = async (collectionId: string | null) => {
+    await conversationsState.attachCollection(collectionId);
+    setShowDocuments(false);
+  };
+
   const handleProviderSelect = (provider: string, apiKey?: string) => {
     conversationsState.setProvider(provider as Provider);
     setSelectedApiKey(apiKey || null);
@@ -119,14 +136,9 @@ export default function Home({ conversationId }: { conversationId?: string }) {
         onSelectConversation={(conversation) => {
           updateConversationUrl(conversation.id);
           conversationsState.setCurrentConversationId(conversation.id);
-          conversationsState.setMessages(
-            conversation.messages.map((message) => ({
-              id: message.id,
-              role: message.role as "assistant" | "user",
-              text: message.content,
-            })),
-          );
+          conversationsState.setMessages(conversation.messages.map(toMessage));
           conversationsState.setProvider(conversation.provider as Provider);
+          conversationsState.setAttachedCollectionId(conversation.collectionId ?? null);
         }}
       />
 
@@ -143,11 +155,41 @@ export default function Home({ conversationId }: { conversationId?: string }) {
           input={input}
           isLoading={isLoading}
           inputRef={inputRef}
+          attachedCollectionName={attachedCollectionName}
+          useRag={useRag}
           onInputChange={setInput}
           onSubmit={() => void submit()}
           onOpenProviderModal={() => setShowProviderModal(true)}
+          onOpenDocuments={() => setShowDocuments(true)}
+          onToggleUseRag={() => setUseRag((current) => !current)}
         />
       </div>
+
+      <DocumentsDrawer
+        isOpen={showDocuments}
+        collections={rag.collections}
+        documents={rag.documents}
+        activeCollectionId={rag.activeCollectionId}
+        attachedCollectionId={conversationsState.attachedCollectionId}
+        isBusy={rag.isLoading}
+        error={rag.error}
+        onClose={() => setShowDocuments(false)}
+        onSelectCollection={rag.selectCollection}
+        onCreateCollection={(name) => void rag.createCollection(name)}
+        onDeleteCollection={(collectionId) => {
+          void rag.deleteCollection(collectionId);
+          if (conversationsState.attachedCollectionId === collectionId) {
+            void conversationsState.attachCollection(null);
+          }
+        }}
+        onAddDocument={(input) => {
+          if (!rag.activeCollectionId) return;
+          void rag.addDocument(rag.activeCollectionId, input);
+        }}
+        onDeleteDocument={(documentId) => void rag.deleteDocument(documentId)}
+        onRetryDocument={(documentId) => void rag.retryDocument(documentId)}
+        onAttach={(collectionId) => void handleAttachCollection(collectionId)}
+      />
 
       <ConfirmModal
         isOpen={showLogoutModal}

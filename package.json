@@ -4,11 +4,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
     "build": "bunx prisma generate && bunx prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
     "db:seed": "bun scripts/seed.ts",
+    "stub": "bun scripts/stub-provider.ts",
     "db:test:deploy": "bun --env-file=.env.test prisma migrate deploy",
     "test": "bun test",
     "test:db": "bun run db:test:deploy && bun --env-file=.env.test test tests/",
@@ -24,8 +26,7 @@
     "next": "16.3.3",
     "prisma": "^6.0.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "resend": "^6.28.0"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

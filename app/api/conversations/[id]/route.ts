@@ -56,21 +56,48 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
     const title = body.title?.trim();
+    // `collectionId: null` detaches the conversation from its document collection.
+    const changesCollection = "collectionId" in body;
 
-    if (!title) {
+    if (!title && !changesCollection) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
+    }
+
+    let collectionId: string | null = null;
+
+    if (changesCollection && body.collectionId !== null) {
+      if (typeof body.collectionId !== "string") {
+        return NextResponse.json({ error: "collectionId must be a string or null" }, { status: 400 });
+      }
+
+      const collection = await prisma.collection.findFirst({
+        where: { id: body.collectionId, userId: user.id },
+        select: { id: true },
+      });
+
+      if (!collection) {
+        return NextResponse.json({ error: "Collection not found" }, { status: 404 });
+      }
+
+      collectionId = collection.id;
     }
 
     const conversation = await prisma.conversation.updateMany({
       where: { id, userId: user.id },
-      data: { title },
+      data: {
+        ...(title ? { title } : {}),
+        ...(changesCollection ? { collectionId } : {}),
+      },
     });
 
     if (conversation.count === 0) {
       return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ title }, { status: 200 });
+    return NextResponse.json(
+      { ...(title ? { title } : {}), ...(changesCollection ? { collectionId } : {}) },
+      { status: 200 },
+    );
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
