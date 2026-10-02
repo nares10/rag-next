@@ -33,6 +33,23 @@ describe("retrieveContext", () => {
     await prisma.$disconnect();
   });
 
+  it("embeds the question as a query, not as a passage", async () => {
+    const { user, collection } = await seedCollection("retrieve-kind@example.com");
+    const kinds: Array<string | undefined> = [];
+
+    await retrieveContext({
+      userId: user.id,
+      collectionId: collection.id,
+      query: "expense receipts",
+      embed: async (texts, options) => {
+        kinds.push(options?.kind);
+        return texts.map(() => axisVector(INVOICE_AXIS));
+      },
+    });
+
+    expect(kinds).toEqual(["query"]);
+  });
+
   it("returns the nearest chunk first", async () => {
     const { user, collection, document } = await seedCollection("retrieve-order@example.com");
 

@@ -109,6 +109,22 @@ describe("ingestDocument", () => {
     expect(chunk?.content.startsWith("Employee Handbook")).toBe(false);
   });
 
+  it("embeds chunks as passages, not as queries", async () => {
+    const { document } = await pendingDocument("ingest-kind@example.com");
+    const kinds: Array<string | undefined> = [];
+
+    await ingestDocument({
+      documentId: document.id,
+      raw: HANDBOOK,
+      embed: async (texts, options) => {
+        kinds.push(options?.kind);
+        return texts.map(() => axisVector(1));
+      },
+    });
+
+    expect(kinds).toEqual(["document"]);
+  });
+
   it("records the content hash so an identical re-upload can be detected", async () => {
     const { document } = await pendingDocument("ingest-hash@example.com");
     const { embed } = spyEmbedder();

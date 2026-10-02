@@ -317,7 +317,7 @@ existing routes. All ownership filters are `WHERE userId = session.user.id`.
 | File size | 4 MB by upload (request-body limit), 20 MB by URL (enforced while the response streams, plus an up-front `content-length` check); 2000 chunks per document |
 | Quota | 50 documents / 20k chunks per user (free tier), surfaced in the profile page next to `freeMessagesUsed` |
 | Embedding cost | ~$0.02 per 1M tokens at `text-embedding-3-small`; a 200-page PDF ≈ 120k tokens ≈ $0.0025. Query embeddings are one per message. |
-| Embedding key | Server's `OPENAI_API_KEY` is used for embeddings even when the chat provider is Anthropic/OpenRouter — the corpus must stay in one vector space. Document this; it means RAG requires an OpenAI key server-side. |
+| Embedding key | The server's own embedding key is used even when the chat provider is Anthropic/OpenRouter — the corpus must stay in one vector space. `EMBEDDING_PROVIDER` selects `openai` (also any OpenAI-compatible endpoint via `OPENAI_BASE_URL`) or `gemini`, whose free tier needs no billing account. Both emit 1536 dimensions, so the column and index are unchanged either way. |
 | Provider down (embeddings) | Ingestion → `failed` with retry; query → fall back to keyword-only retrieval rather than erroring. |
 | Retrieval slow | Hard 1.5 s timeout on the retrieval step; on timeout answer without context and show the grounding notice. |
 | Prompt injection in documents | Context is clearly delimited and the system prompt states that context is data, never instructions. Chunks are never executed or fetched from. |
@@ -456,9 +456,17 @@ where the two disagree.
   upload it, rather than accepting bytes mangled by JSON string decoding.
 - **pdf.js detaches the buffer it is handed.** `extractPdf` passes it a copy, so callers
   still hold their bytes afterwards; a test pins this.
-- **Embeddings need `OPENAI_API_KEY` on the server**, whichever provider the user chats
-  with (§8). Without it, retrieval degrades: the answer still streams, with the
-  "document search was unavailable" notice.
+- **Embeddings need a server-side key**, whichever provider the user chats with (§8):
+  `OPENAI_API_KEY`, or `GEMINI_API_KEY` with `EMBEDDING_PROVIDER=gemini`. Without it,
+  retrieval degrades: the answer still streams, with the "document search was unavailable"
+  notice.
+- **Passages and questions are embedded differently.** `embed()` takes a `kind`, and
+  Gemini receives `RETRIEVAL_DOCUMENT` for chunks and `RETRIEVAL_QUERY` for questions;
+  models trained with asymmetric objectives lose recall when both go in the same way. The
+  OpenAI path ignores it, since that model is symmetric.
+- **Gemini vectors are normalized before storage.** Matryoshka truncation to 1536 leaves
+  them non-unit, which makes similarity scores incomparable across providers and would
+  move the 0.25 floor under the pipeline's feet.
 - **`OPENAI_BASE_URL`** (new, optional) points both chat completions and embeddings at an
   OpenAI-compatible endpoint. The tests use it to reach `scripts/stub-provider.ts`.
 - **`RAG_PROCESS_SECRET`** (new, optional) enables sessionless calls to the process route.

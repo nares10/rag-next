@@ -119,7 +119,9 @@ export async function ingestDocument(options: IngestOptions): Promise<IngestResu
       );
     }
 
-    const vectors = await embed(drafts.map((draft) => embeddingInput(document.title, draft)));
+    const vectors = await embed(drafts.map((draft) => embeddingInput(document.title, draft)), {
+      kind: "document",
+    });
 
     // A previous interrupted run may have left chunks at these ordinals. Clearing first is
     // simpler than upserting and leaves no stale rows if this run produced fewer chunks.

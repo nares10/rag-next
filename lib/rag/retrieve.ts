@@ -56,7 +56,9 @@ export async function retrieveContext(options: RetrieveOptions): Promise<Retriev
 
   if (!trimmedQuery) return [];
 
-  const [queryVector] = await embed([trimmedQuery]);
+  // Embedded as a question, not as a passage: models with asymmetric retrieval training
+  // place the two in different parts of the space.
+  const [queryVector] = await embed([trimmedQuery], { kind: "query" });
 
   // Both legs are independent reads; running them together halves the retrieval latency
   // that sits in front of the user's first streamed token.

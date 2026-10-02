@@ -52,7 +52,12 @@ OPENAI_MODEL=<openai model>
 
 AI_PROVIDER=openroute
 
+# Embeddings for document search (see below)
+EMBEDDING_PROVIDER=<"gemini" or "openai"; defaults to "openai">
+GEMINI_API_KEY=<required when EMBEDDING_PROVIDER=gemini>
+
 # Optional
+EMBEDDING_MODEL=<overrides the provider's default embedding model>
 OPENAI_BASE_URL=<an OpenAI-compatible endpoint; defaults to https://api.openai.com/v1>
 RAG_PROCESS_SECRET=<shared secret allowing a queue or cron to trigger document processing>
 ```
@@ -88,10 +93,19 @@ answers from those documents and cites the passages it used.
 
 Two things to know:
 
-- **Embeddings always use the server's `OPENAI_API_KEY`**, even when you chat through
-  Anthropic or OpenRouter — a collection is only searchable if every vector in it came
-  from the same model. Without that key, chat still works; document search reports itself
-  as unavailable.
+- **Embeddings always use the server's own key**, even when you chat through Anthropic or
+  OpenRouter — a collection is only searchable if every vector in it came from the same
+  model. Without that key, chat still works; document search reports itself as
+  unavailable.
+- **Two embedding providers.** `EMBEDDING_PROVIDER=gemini` uses `gemini-embedding-001`,
+  which has a free tier that needs no billing account, at 1536 dimensions to match the
+  database column. The default, `openai`, uses `text-embedding-3-small` and also covers
+  any OpenAI-compatible endpoint (OpenRouter, a gateway, a local server) through
+  `OPENAI_BASE_URL`.
+- **Switching provider invalidates the corpus.** Vectors from different models are not
+  comparable, so chunks embedded with the old model stop being searchable the moment
+  `EMBEDDING_MODEL` changes — `retrieve.ts` filters them out rather than returning
+  nonsense. Re-add the documents after a switch.
 - **PDF, Word (.docx), markdown, plain text and HTML** are all read. PDF chunks keep the
   page they came from, so citations can say `(p.12)`.
 - **Uploads are limited to 4 MB** by the serverless request-body cap. Larger documents can

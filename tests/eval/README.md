@@ -6,7 +6,8 @@ fusion constant is guesswork: every change looks fine on the one question you tr
 
 ```bash
 bun run eval                     # fake embedder, compared against the recorded baseline
-bun run eval --embedder=openai   # the real model — calls the embeddings API and costs money
+bun run eval --embedder=gemini   # a real model, on Gemini's free tier
+bun run eval --embedder=openai   # a real model, on an OpenAI-compatible endpoint
 bun run eval --record            # overwrite the baseline for the chosen embedder
 bun run eval --limit=10          # score a different top-k
 ```
@@ -52,19 +53,25 @@ A consequence worth knowing: `abstentionRate` is near-free with the fake embedde
 so little is retrieved for anything. It only becomes a real test under a model that
 produces plausible-looking near-matches.
 
-**`--embedder=openai`.** This is the one that answers "is retrieval any good?". It calls
-the embeddings API, so it costs money (cents, for this corpus) and needs an
-`OPENAI_API_KEY` with credit on it. **No baseline is recorded for it yet** — the attempt
-made at the time of writing was rejected with "You have no credits remaining", so
-`baseline.openai.json` does not exist and `bun run eval --embedder=openai` will simply
-print its scores and tell you to record one. Record a baseline before a tuning change and
-re-run after:
+**A real provider.** This is what answers "is retrieval any good?". `--embedder=gemini`
+needs `GEMINI_API_KEY` and runs inside Google's free tier for a corpus this size;
+`--embedder=openai` needs an `OPENAI_API_KEY` with credit, and also covers any
+OpenAI-compatible endpoint through `OPENAI_BASE_URL`.
+
+**No real baseline is recorded yet.** The OpenAI attempt made while building this set was
+rejected with "You have no credits remaining", so neither `baseline.openai.json` nor
+`baseline.gemini.json` exists; the runner prints its scores and tells you to record one.
+Record before a tuning change and re-run after:
 
 ```bash
-DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=openai --record   # before
+DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=gemini --record   # before
 # ...change lib/rag/chunk.ts, retrieve.ts, prompt.ts...
-DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=openai            # after
+DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=gemini            # after
 ```
+
+Gemini is also the provider where the eval's question/passage split matters most: chunks
+are embedded as `RETRIEVAL_DOCUMENT` and questions as `RETRIEVAL_QUERY`, so the scores
+reflect the asymmetry the model was trained with.
 
 A non-zero exit means a tracked metric fell below the baseline. Improvements never fail;
 record them with `--record` so the bar moves up.

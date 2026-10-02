@@ -3,7 +3,8 @@
  * Retrieval eval runner.
  *
  *   bun run eval                     # fake embedder, compared against the recorded baseline
- *   bun run eval --embedder=openai   # the real model: calls the embeddings API and costs money
+ *   bun run eval --embedder=gemini   # a real model on Gemini's free tier
+ *   bun run eval --embedder=openai   # a real model on an OpenAI-compatible endpoint
  *   bun run eval --record            # overwrite the baseline for the chosen embedder
  *   bun run eval --limit=10          # score a different top-k
  *
@@ -14,7 +15,7 @@
  *
  * The fake embedder only knows vocabulary overlap, so its scores measure the pipeline's
  * ranking logic — chunking, fusion, the similarity floor, the token budget — and not how
- * good retrieval actually is. For that, record a baseline with --embedder=openai.
+ * good retrieval actually is. For that, record a baseline with a real provider.
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -52,9 +53,9 @@ function assertEvalDatabase() {
 
 function embedderFor(name: string): Embedder {
   if (name === "fake") return fakeEmbedder;
-  if (name === "openai") return createEmbedder();
 
-  throw new Error(`Unknown embedder "${name}". Use fake or openai.`);
+  // Anything else is a real provider; createEmbedder rejects a name it does not know.
+  return createEmbedder({ provider: name });
 }
 
 function formatPercent(value: number): string {
