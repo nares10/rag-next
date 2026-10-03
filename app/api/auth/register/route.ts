@@ -66,7 +66,6 @@ export async function POST(request: Request) {
 				email,
 				name,
 				passwordHash: await hashPassword(password),
-				emailVerified: true,
 			},
 			select: {
 				id: true,

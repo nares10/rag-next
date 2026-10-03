@@ -19,6 +19,10 @@ const HANDBOOK = [
   "Economy class is the default for flights under six hours.",
 ].join("\n");
 
+// Tests that make several round trips through the app and the stub (ingest, then more
+// than one chat or a rewrite) outgrow bun's 5s default.
+const MULTI_TURN_TIMEOUT_MS = 20_000;
+
 type SseFrame = Record<string, unknown>;
 
 async function readFrames(response: Response): Promise<SseFrame[]> {
@@ -94,7 +98,7 @@ describe("POST /api/chat with a collection attached", () => {
       headers,
       body: JSON.stringify({
         message: "How long do I have to file receipts?",
-        provider: "openai",
+        provider: "openrouter",
         collectionId: collection.id,
       }),
     });
@@ -122,7 +126,7 @@ describe("POST /api/chat with a collection attached", () => {
       headers,
       body: JSON.stringify({
         message: "How long do I have to file receipts?",
-        provider: "openai",
+        provider: "openrouter",
         collectionId: collection.id,
       }),
     });
@@ -146,7 +150,7 @@ describe("POST /api/chat with a collection attached", () => {
         headers,
         body: JSON.stringify({
           message: "How long do I have to file receipts?",
-          provider: "openai",
+          provider: "openrouter",
           collectionId: collection.id,
         }),
       }),
@@ -171,7 +175,7 @@ describe("POST /api/chat with a collection attached", () => {
       headers,
       body: JSON.stringify({
         message: "How long do I have to file receipts?",
-        provider: "openai",
+        provider: "openrouter",
         collectionId: collection.id,
         useRag: false,
       }),
@@ -197,7 +201,7 @@ describe("POST /api/chat with a collection attached", () => {
       headers,
       body: JSON.stringify({
         message: "What is our quarterly revenue forecast?",
-        provider: "openai",
+        provider: "openrouter",
         collectionId: collection.id,
       }),
     });
@@ -218,7 +222,7 @@ describe("POST /api/chat with a collection attached", () => {
     const response = await fetch(`${TEST_BASE_URL}/api/chat`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ message: "Hello", provider: "openai" }),
+      body: JSON.stringify({ message: "Hello", provider: "openrouter" }),
     });
     const frames = await readFrames(response);
 
@@ -234,7 +238,7 @@ describe("POST /api/chat with a collection attached", () => {
       headers,
       body: JSON.stringify({
         message: "What does the handbook say about expenses?",
-        provider: "openai",
+        provider: "openrouter",
         collectionId: collection.id,
       }),
     });
@@ -248,7 +252,7 @@ describe("POST /api/chat with a collection attached", () => {
         headers,
         body: JSON.stringify({
           message: "And what about travel?",
-          provider: "openai",
+          provider: "openrouter",
           conversationId,
           collectionId: collection.id,
         }),
@@ -267,12 +271,12 @@ describe("POST /api/chat with a collection attached", () => {
     // ...and the query that was embedded is the rewrite's output, not the raw message.
     const [embedding] = await stubRequests("/v1/embeddings");
     expect(embedding.body.input).toEqual(["And what about travel?"]);
-  });
+  }, MULTI_TURN_TIMEOUT_MS);
 
   it("sends the most recent turns to the provider, not the first ten", async () => {
     const { user, headers, collection } = await readyCollectionWith("rag-chat-window@example.com", HANDBOOK);
     const conversation = await prisma.conversation.create({
-      data: { userId: user.id, title: "Long one", provider: "openai", collectionId: collection.id },
+      data: { userId: user.id, title: "Long one", provider: "openrouter", collectionId: collection.id },
     });
 
     // Twelve stored turns: anything that takes the oldest ten never sees the last two.
@@ -292,7 +296,7 @@ describe("POST /api/chat with a collection attached", () => {
       await fetch(`${TEST_BASE_URL}/api/chat`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ message: "and finally?", provider: "openai", conversationId: conversation.id }),
+        body: JSON.stringify({ message: "and finally?", provider: "openrouter", conversationId: conversation.id }),
       }),
     );
 
@@ -303,7 +307,7 @@ describe("POST /api/chat with a collection attached", () => {
 
     expect(contents.some((c) => c.includes("turn number 11"))).toBe(true);
     expect(contents.some((c) => c.includes("turn number 0"))).toBe(false);
-  });
+  }, MULTI_TURN_TIMEOUT_MS);
 
   it("ignores a collection id belonging to another user", async () => {
     const owner = await readyCollectionWith("rag-chat-owner@example.com", HANDBOOK);
@@ -315,7 +319,7 @@ describe("POST /api/chat with a collection attached", () => {
       headers: attacker,
       body: JSON.stringify({
         message: "How long do I have to file receipts?",
-        provider: "openai",
+        provider: "openrouter",
         collectionId: owner.collection.id,
       }),
     });

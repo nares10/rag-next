@@ -26,7 +26,7 @@ export function createCompleter(options: CompleterOptions): Completer | null {
 
   return async function complete(prompt) {
     const response = isAnthropic
-      ? await fetchImpl("https://api.anthropic.com/v1/messages", {
+      ? await fetchImpl(`${anthropicBaseUrl(options.baseUrl)}/v1/messages`, {
           method: "POST",
           headers: {
             "x-api-key": apiKey,
@@ -71,9 +71,18 @@ export function createCompleter(options: CompleterOptions): Completer | null {
   };
 }
 
+/**
+ * Kept in step with the chat route's ANTHROPIC_BASE_URL: pointing streaming at a local
+ * gateway while the rewrite still called api.anthropic.com would send the user's key off
+ * the machine on every follow-up, and stall on the 2s timeout where egress is blocked.
+ */
+function anthropicBaseUrl(override?: string): string {
+  return override || process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+}
+
 function baseUrl(provider: string, override?: string): string {
   if (override) return override;
-  if (provider === "openrouter") return "https://openrouter.ai/api/v1";
+  if (provider === "openrouter") return process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 
   return process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 }

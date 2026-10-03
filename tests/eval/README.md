@@ -6,8 +6,8 @@ fusion constant is guesswork: every change looks fine on the one question you tr
 
 ```bash
 bun run eval                     # fake embedder, compared against the recorded baseline
-bun run eval --embedder=gemini   # a real model, on Gemini's free tier
-bun run eval --embedder=openai   # a real model, on an OpenAI-compatible endpoint
+bun run eval --embedder=openrouter   # a real model, through OpenRouter
+bun run eval --embedder=openai       # a real model, on an OpenAI-compatible endpoint
 bun run eval --record            # overwrite the baseline for the chosen embedder
 bun run eval --limit=10          # score a different top-k
 ```
@@ -53,31 +53,26 @@ A consequence worth knowing: `abstentionRate` is near-free with the fake embedde
 so little is retrieved for anything. It only becomes a real test under a model that
 produces plausible-looking near-matches.
 
-**A real provider.** This is what answers "is retrieval any good?". `--embedder=gemini`
-needs `GEMINI_API_KEY` and runs inside Google's free tier for a corpus this size;
+**A real provider.** This is what answers "is retrieval any good?". `--embedder=openrouter`
+needs `OPENROUTER_API_KEY` and runs `openai/text-embedding-3-small` through OpenRouter;
 `--embedder=openai` needs an `OPENAI_API_KEY` with credit, and also covers any
 OpenAI-compatible endpoint through `OPENAI_BASE_URL`.
 
-`baseline.gemini.json` is recorded. `baseline.openai.json` is not — that attempt was
-rejected with "You have no credits remaining". Record before a tuning change and re-run
+No real-provider baseline is recorded yet. Record one before a tuning change and re-run
 after:
 
 ```bash
-DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=gemini --record   # before
+DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=openrouter --record   # before
 # ...change lib/rag/chunk.ts, retrieve.ts, prompt.ts...
-DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=gemini            # after
+DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=openrouter            # after
 ```
-
-Gemini is also the provider where the eval's question/passage split matters most: chunks
-are embedded as `RETRIEVAL_DOCUMENT` and questions as `RETRIEVAL_QUERY`, so the scores
-reflect the asymmetry the model was trained with.
 
 A non-zero exit means a tracked metric fell below the baseline. Improvements never fail;
 record them with `--record` so the bar moves up.
 
 ## What the first real run found
 
-With `gemini-embedding-001`, ranking is perfect on this set: every one of the 36
+With `gemini-embedding-001` (the embedding provider at the time, since removed), ranking is perfect on this set: every one of the 36
 answerable questions puts the right document *and the right section* first. The set
 therefore has no headroom — it can catch a regression, but it cannot show an improvement.
 Making it harder (more documents, sections that paraphrase each other) is the way to get

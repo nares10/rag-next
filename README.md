@@ -77,7 +77,7 @@ grounding notice instead of silently answering from general knowledge.
 - Hybrid search: pgvector cosine similarity + Postgres full-text, fused with RRF
 - Heading-aware chunking with overlap, so a fact split across a boundary is still findable
 - Follow-up questions rewritten into standalone queries before searching
-- Two embedding providers — Gemini (free tier) or any OpenAI-compatible endpoint
+- Embeddings through OpenRouter (default) or any OpenAI-compatible endpoint
 
 **Chat**
 - Streaming answers from OpenRouter, OpenAI or Anthropic, with a model picker
@@ -123,19 +123,26 @@ DATABASE_URL=<postgres connection string>
 TEST_DATABASE_URL=<a separate database; its name must contain "test">
 
 # Embeddings — required for document search
-EMBEDDING_PROVIDER=gemini            # "gemini" or "openai" (default: openai)
-GEMINI_API_KEY=<key from aistudio.google.com>
+EMBEDDING_PROVIDER=openrouter        # "openrouter" or "openai" (default: openrouter)
+OPENROUTER_API_KEY=<key>             # also the chat fallback below
 
 # Chat fallback for free messages (users add their own keys in the app)
 AI_PROVIDER=openrouter
-OPENROUTER_API_KEY=<key>
 OPENROUTER_MODEL=<model id>
 
 # Optional
-OPENAI_API_KEY=<key>                 # also the default embedding provider
+OPENAI_API_KEY=<key>                 # embeddings with EMBEDDING_PROVIDER=openai only;
+                                     # chat on OpenAI is bring-your-own-key and never
+                                     # reads this
 OPENAI_MODEL=<model id>
-OPENAI_BASE_URL=<OpenAI-compatible endpoint; default https://api.openai.com/v1>
-EMBEDDING_MODEL=<override the provider's default embedding model>
+EMBEDDING_MODEL=<override the OpenRouter embedding model id>
+OPENAI_EMBEDDING_MODEL=<override it on the EMBEDDING_PROVIDER=openai path>
+
+# Endpoint overrides — a local gateway, or the test stub
+OPENROUTER_BASE_URL=<default https://openrouter.ai/api/v1>   # chat, rewrite, embeddings
+OPENAI_BASE_URL=<default https://api.openai.com/v1>
+ANTHROPIC_BASE_URL=<default https://api.anthropic.com>
+
 RAG_PROCESS_SECRET=<lets a queue or cron trigger document processing>
 BASE_URL=<where the tests reach the app; default http://localhost:3000>
 ```
@@ -167,15 +174,15 @@ Document search needs a **server-side embedding key**, whichever provider the ch
 uses. A collection is only searchable if every vector in it — and the query vector — came
 from the same model, so this is not something each user can choose.
 
-| | `EMBEDDING_PROVIDER=gemini` | `EMBEDDING_PROVIDER=openai` (default) |
+| | `EMBEDDING_PROVIDER=openrouter` (default) | `EMBEDDING_PROVIDER=openai` |
 |---|---|---|
-| Model | `gemini-embedding-001` | `text-embedding-3-small` |
-| Cost | Free tier, no billing account | Paid per token |
-| Key | `GEMINI_API_KEY` | `OPENAI_API_KEY` |
+| Model | `openai/text-embedding-3-small` | `text-embedding-3-small` |
+| Cost | Paid per token | Paid per token |
+| Key | `OPENROUTER_API_KEY` | `OPENAI_API_KEY` |
 | Also covers | — | Any OpenAI-compatible endpoint via `OPENAI_BASE_URL` |
 
-Both emit **1536 dimensions**, matching the `vector(1536)` column, so you can pick either
-without touching the schema.
+Both serve the same model at **1536 dimensions**, matching the `vector(1536)` column, so
+vectors from either are interchangeable.
 
 Two consequences worth knowing:
 
@@ -185,10 +192,6 @@ Two consequences worth knowing:
   — but there is no re-embedding script yet, so re-add the documents after a switch.
 - **Without an embedding key, chat still works.** Retrieval degrades and the UI says
   document search is unavailable, rather than failing the message.
-
-Gemini's free tier counts **each text in a batch** against its 100 requests/minute limit,
-so a large first ingest may pause while the quota window reopens. The client waits exactly
-as long as the API asks.
 
 ---
 
@@ -219,9 +222,8 @@ bun run stub
 
 # 2. the app, pointed at the test database and the stub
 DATABASE_URL=$TEST_DATABASE_URL \
-OPENAI_API_KEY=stub-key \
-OPENAI_BASE_URL=http://localhost:4010/v1 \
-OPENROUTER_API_KEY= ANTHROPIC_API_KEY= AI_PROVIDER= \
+OPENROUTER_API_KEY=stub-key \
+OPENROUTER_BASE_URL=http://localhost:4010/v1 \
 bun run dev
 
 # 3. the tests
@@ -230,10 +232,11 @@ bun test tests/rag                    # the RAG pipeline
 BASE_URL=http://localhost:3001 bun test   # if the app is on another port
 ```
 
-`OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY` must stay empty — `tests/chat.test.ts`
-asserts the error path for a provider with no key. The pure unit tests (chunking,
-normalization, fusion, prompt assembly, extraction, embeddings, URL guarding) need neither
-process.
+
+`OPENAI_API_KEY` and `ANTHROPIC_API_KEY` can be left as they are — the chat route never
+reads them. Those two providers are bring-your-own-key, which is the branch
+`tests/chat.test.ts` asserts. The pure unit tests (chunking, normalization, fusion, prompt
+assembly, extraction, embeddings, URL guarding) need neither process.
 
 `TEST_DATABASE_URL` must name a database containing `test`; the harness refuses to clean
 anything else. The suite truncates that database, so two runs cannot share it.
@@ -245,7 +248,7 @@ corpora and 42 questions — 36 with a known answer, 6 that nothing should match
 
 ```bash
 DATABASE_URL=$TEST_DATABASE_URL bun run eval                    # fake embedder, vs baseline
-DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=gemini  # real model
+DATABASE_URL=$TEST_DATABASE_URL bun run eval --embedder=openrouter  # real model
 DATABASE_URL=$TEST_DATABASE_URL bun run eval --record           # update the baseline
 ```
 
@@ -266,7 +269,7 @@ lib/rag/
   extract.ts        PDF, DOCX, HTML and text → markdown
   normalize.ts      unicode, whitespace, running headers
   chunk.ts          heading-aware splitting with overlap
-  embed.ts          OpenAI and Gemini providers, batching and retries
+  embed.ts          OpenRouter and OpenAI providers, batching and retries
   ingest.ts         the write pipeline, end to end
   retrieve.ts       hybrid search over pgvector + tsvector
   fuse.ts           reciprocal rank fusion

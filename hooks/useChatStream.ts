@@ -113,7 +113,14 @@ export function useChatStream({
 
 			if (!response.ok || !response.body) {
 				const errorData = await response.json().catch(() => null);
-				throw new Error(errorData?.error || "Failed to get a response from the AI.");
+				const failure: Error & { requiresApiKey?: boolean } = new Error(
+					errorData?.error || "Failed to get a response from the AI.",
+				);
+				// The route raises this flag for both the free-message ceiling and a
+				// bring-your-own-key provider. Either way the fix is to add a key, so carry
+				// it through to the handler below instead of matching on the message text.
+				if (errorData?.requiresApiKey) failure.requiresApiKey = true;
+				throw failure;
 			}
 
 			if (!selectedApiKey) {
@@ -211,7 +218,11 @@ export function useChatStream({
 			const errorMessage = limitReached
 				? `You've used your ${FREE_MESSAGE_LIMIT} free messages. Please add an API key to continue.`
 				: error instanceof Error ? error.message : "Something went wrong. Please try again.";
-			if (limitReached) setShowProviderModal(true);
+			// Open the key modal whenever the server said a key is what's missing — a
+			// provider the server does not fund is as actionable as a spent allowance.
+			if (limitReached || (error as Error & { requiresApiKey?: boolean })?.requiresApiKey) {
+				setShowProviderModal(true);
+			}
 			// The empty placeholder becomes the error, rather than leaving a blank bubble.
 			updateMessage(assistantId, (message) => ({
 				...message,

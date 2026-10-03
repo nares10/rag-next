@@ -54,8 +54,9 @@ export const ModelName = {
   Conversation: 'Conversation',
   Message: 'Message',
   ApiKey: 'ApiKey',
-  EmailVerificationToken: 'EmailVerificationToken',
-  PendingRegistration: 'PendingRegistration'
+  Collection: 'Collection',
+  Document: 'Document',
+  Chunk: 'Chunk'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -79,7 +80,6 @@ export const UserScalarFieldEnum = {
   email: 'email',
   passwordHash: 'passwordHash',
   name: 'name',
-  emailVerified: 'emailVerified',
   freeMessagesUsed: 'freeMessagesUsed',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -105,6 +105,7 @@ export const ConversationScalarFieldEnum = {
   provider: 'provider',
   model: 'model',
   systemPrompt: 'systemPrompt',
+  collectionId: 'collectionId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -118,6 +119,7 @@ export const MessageScalarFieldEnum = {
   role: 'role',
   content: 'content',
   tokens: 'tokens',
+  citations: 'citations',
   createdAt: 'createdAt'
 } as const
 
@@ -136,32 +138,53 @@ export const ApiKeyScalarFieldEnum = {
 export type ApiKeyScalarFieldEnum = (typeof ApiKeyScalarFieldEnum)[keyof typeof ApiKeyScalarFieldEnum]
 
 
-export const EmailVerificationTokenScalarFieldEnum = {
+export const CollectionScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
-  tokenHash: 'tokenHash',
-  expiresAt: 'expiresAt',
-  createdAt: 'createdAt'
-} as const
-
-export type EmailVerificationTokenScalarFieldEnum = (typeof EmailVerificationTokenScalarFieldEnum)[keyof typeof EmailVerificationTokenScalarFieldEnum]
-
-
-export const PendingRegistrationScalarFieldEnum = {
-  id: 'id',
-  email: 'email',
   name: 'name',
-  codeHash: 'codeHash',
-  expiresAt: 'expiresAt',
-  attempts: 'attempts',
-  lastSentAt: 'lastSentAt',
-  verifiedAt: 'verifiedAt',
-  verificationTokenHash: 'verificationTokenHash',
+  description: 'description',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
-export type PendingRegistrationScalarFieldEnum = (typeof PendingRegistrationScalarFieldEnum)[keyof typeof PendingRegistrationScalarFieldEnum]
+export type CollectionScalarFieldEnum = (typeof CollectionScalarFieldEnum)[keyof typeof CollectionScalarFieldEnum]
+
+
+export const DocumentScalarFieldEnum = {
+  id: 'id',
+  collectionId: 'collectionId',
+  userId: 'userId',
+  title: 'title',
+  sourceType: 'sourceType',
+  sourceUri: 'sourceUri',
+  mimeType: 'mimeType',
+  byteSize: 'byteSize',
+  contentHash: 'contentHash',
+  status: 'status',
+  error: 'error',
+  pageCount: 'pageCount',
+  chunkCount: 'chunkCount',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type DocumentScalarFieldEnum = (typeof DocumentScalarFieldEnum)[keyof typeof DocumentScalarFieldEnum]
+
+
+export const ChunkScalarFieldEnum = {
+  id: 'id',
+  documentId: 'documentId',
+  collectionId: 'collectionId',
+  ordinal: 'ordinal',
+  content: 'content',
+  tokenCount: 'tokenCount',
+  page: 'page',
+  heading: 'heading',
+  embeddingModel: 'embeddingModel',
+  createdAt: 'createdAt'
+} as const
+
+export type ChunkScalarFieldEnum = (typeof ChunkScalarFieldEnum)[keyof typeof ChunkScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -170,6 +193,14 @@ export const SortOrder = {
 } as const
 
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
 export const QueryMode = {
@@ -186,4 +217,13 @@ export const NullsOrder = {
 } as const
 
 export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
+export const JsonNullValueFilter = {
+  DbNull: DbNull,
+  JsonNull: JsonNull,
+  AnyNull: AnyNull
+} as const
+
+export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
 

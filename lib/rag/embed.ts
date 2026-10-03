@@ -5,33 +5,35 @@
  * corpus is only searchable if every vector in it — and the query vector — come from the
  * same model, so this is not a per-user choice.
  *
- * Two providers are supported. "openai" speaks the OpenAI embeddings API and therefore
- * also covers anything compatible with it (OpenRouter, a local gateway, the test stub)
- * through OPENAI_BASE_URL. "gemini" speaks Google's own shape and is the one with a free
- * tier that needs no billing account.
+ * Both providers speak the OpenAI embeddings API. "openrouter" (the default, and the only
+ * one the server funds) routes to OpenAI's model through OpenRouter with
+ * OPENROUTER_API_KEY, at OPENROUTER_BASE_URL when that is set. "openai" is an explicit
+ * opt-in via EMBEDDING_PROVIDER, for calling OpenAI directly or anything compatible with
+ * it (a local gateway, the eval runner) through OPENAI_BASE_URL — it is never reached by
+ * default, so the server's OpenAI key is not spent unless you ask for it.
  */
-export const EMBEDDING_PROVIDERS = ["openai", "gemini"] as const;
+export const EMBEDDING_PROVIDERS = ["openrouter", "openai"] as const;
 export type EmbeddingProvider = (typeof EMBEDDING_PROVIDERS)[number];
 
-export const EMBEDDING_MODEL = "text-embedding-3-small";
-export const GEMINI_EMBEDDING_MODEL = "gemini-embedding-001";
 /**
- * Fixed by the `vector(1536)` column on Chunk. Both supported models can produce exactly
- * this width — Gemini through Matryoshka truncation, which is why 1536 was chosen over
- * its 3072 default.
+ * The model every stored chunk is tagged with. OpenRouter serves the same model under a
+ * vendor-prefixed id, so vectors from either provider share one space and one tag.
  */
+export const EMBEDDING_MODEL = "text-embedding-3-small";
+export const OPENROUTER_EMBEDDING_MODEL = `openai/${EMBEDDING_MODEL}`;
+/** Fixed by the `vector(1536)` column on Chunk, which is text-embedding-3-small's width. */
 export const EMBEDDING_DIMENSIONS = 1536;
 export const EMBEDDING_BATCH_SIZE = 96;
-/** Gemini's batch endpoint accepts fewer requests per call than OpenAI's. */
-export const GEMINI_BATCH_SIZE = 100;
 
-const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const OPENAI_BASE_URL = "https://api.openai.com/v1";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const OPENROUTER_SITE_URL = "http://localhost:3000";
+const OPENROUTER_SITE_NAME = "RAG";
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 500;
 /**
- * Ceiling on a provider-requested wait. A free-tier quota window is tens of seconds and
- * worth waiting out; anything beyond this is a quota that will not reopen in time, and
+ * Ceiling on a provider-requested wait. A rate-limit window of tens of seconds is worth
+ * waiting out; anything beyond this is a quota that will not reopen in time, and
  * blocking on it would hang an ingest run silently.
  */
 const MAX_RETRY_AFTER_MS = 90_000;
@@ -75,7 +77,7 @@ export class EmbeddingError extends Error {
 type BatchRequest = (texts: string[], kind: EmbeddingKind) => Promise<number[][]>;
 
 export function createEmbedder(options: EmbedderOptions = {}): Embedder {
-  const provider = (options.provider ?? process.env.EMBEDDING_PROVIDER ?? "openai") as EmbeddingProvider;
+  const provider = (options.provider ?? process.env.EMBEDDING_PROVIDER ?? "openrouter") as EmbeddingProvider;
 
   if (!EMBEDDING_PROVIDERS.includes(provider)) {
     throw new EmbeddingError(
@@ -85,9 +87,8 @@ export function createEmbedder(options: EmbedderOptions = {}): Embedder {
 
   const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const isGemini = provider === "gemini";
-  const batchSize = options.batchSize ?? (isGemini ? GEMINI_BATCH_SIZE : EMBEDDING_BATCH_SIZE);
-  const requestBatch = isGemini ? geminiRequest(options) : openAiRequest(options);
+  const batchSize = options.batchSize ?? EMBEDDING_BATCH_SIZE;
+  const requestBatch = provider === "openrouter" ? openRouterRequest(options) : openAiRequest(options);
 
   return async function embed(texts, embedOptions) {
     if (texts.length === 0) return [];
@@ -114,9 +115,9 @@ export function createEmbedder(options: EmbedderOptions = {}): Embedder {
         lastError = error;
 
         if (attempt < maxAttempts) {
-          // Prefer the provider's own figure: on a free tier the quota window is tens of
-          // seconds, and guessing a sub-second backoff burns every attempt before it
-          // reopens. Otherwise exponential backoff with jitter, so a burst of parallel
+          // Prefer the provider's own figure: a rate-limit window can be tens of seconds,
+          // and guessing a sub-second backoff burns every attempt before it reopens.
+          // Otherwise exponential backoff with jitter, so a burst of parallel
           // batches doesn't retry in lockstep and trip the limit again.
           await sleep(error.retryAfterMs ?? BASE_DELAY_MS * 2 ** (attempt - 1) * (1 + Math.random()));
         }
@@ -127,19 +128,62 @@ export function createEmbedder(options: EmbedderOptions = {}): Embedder {
   }
 }
 
+
+/**
+ * Only reachable by setting EMBEDDING_PROVIDER=openai (or passing the provider
+ * explicitly), which is how the eval runner scores a real model on an OpenAI-compatible
+ * endpoint. Nothing on the request path chooses it, so the server's OpenAI key stays
+ * unspent unless you opt in.
+ */
 function openAiRequest(options: EmbedderOptions): BatchRequest {
   const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
-  const model = options.model ?? process.env.EMBEDDING_MODEL ?? EMBEDDING_MODEL;
-  const fetchImpl = options.fetchImpl ?? fetch;
-  // `||` not `??`: an env var set to an empty string is a blank line in a .env file, not
-  // a deliberate choice of "" as the base URL.
-  const endpoint = `${options.baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL}/embeddings`;
 
   if (!apiKey) {
     throw new EmbeddingError(
-      "OPENAI_API_KEY is missing. Embeddings always use the server key, so document search needs it even when chatting with another provider.",
+      "OPENAI_API_KEY is missing, and EMBEDDING_PROVIDER asks for OpenAI directly. Unset it to embed through OpenRouter instead.",
     );
   }
+
+  return embeddingsRequest({
+    apiKey,
+    // Not EMBEDDING_MODEL: that names the model for the default OpenRouter path, and
+    // OpenRouter's vendor-prefixed id is not something OpenAI's own API accepts.
+    model: options.model ?? process.env.OPENAI_EMBEDDING_MODEL ?? EMBEDDING_MODEL,
+    // `||` not `??`: an env var set to an empty string is a blank line in a .env file, not
+    // a deliberate choice of "" as the base URL.
+    baseUrl: options.baseUrl || process.env.OPENAI_BASE_URL || OPENAI_BASE_URL,
+    fetchImpl: options.fetchImpl ?? fetch,
+  });
+}
+
+function openRouterRequest(options: EmbedderOptions): BatchRequest {
+  const apiKey = options.apiKey ?? process.env.OPENROUTER_API_KEY;
+
+  if (!apiKey) {
+    throw new EmbeddingError(
+      "OPENROUTER_API_KEY is missing. Embeddings always use the server key, so document search needs it whichever provider the chat uses.",
+    );
+  }
+
+  return embeddingsRequest({
+    apiKey,
+    model: options.model ?? process.env.EMBEDDING_MODEL ?? OPENROUTER_EMBEDDING_MODEL,
+    baseUrl: options.baseUrl || process.env.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL,
+    fetchImpl: options.fetchImpl ?? fetch,
+    // Optional attribution, shown in OpenRouter's app rankings.
+    headers: { "HTTP-Referer": OPENROUTER_SITE_URL, "X-OpenRouter-Title": OPENROUTER_SITE_NAME },
+  });
+}
+
+function embeddingsRequest(config: {
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+  fetchImpl: typeof fetch;
+  headers?: Record<string, string>;
+}): BatchRequest {
+  const { apiKey, model, baseUrl, fetchImpl, headers } = config;
+  const endpoint = `${baseUrl}/embeddings`;
 
   return async function request(batch) {
     const response = await fetchImpl(endpoint, {
@@ -147,8 +191,9 @@ function openAiRequest(options: EmbedderOptions): BatchRequest {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        ...headers,
       },
-      body: JSON.stringify({ model, input: batch }),
+      body: JSON.stringify({ model, input: batch, encoding_format: "float" }),
     });
 
     const payload = await readPayload(response, "Embedding request");
@@ -168,48 +213,6 @@ function openAiRequest(options: EmbedderOptions): BatchRequest {
   };
 }
 
-function geminiRequest(options: EmbedderOptions): BatchRequest {
-  const apiKey = options.apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  const model = options.model ?? process.env.EMBEDDING_MODEL ?? GEMINI_EMBEDDING_MODEL;
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const endpoint = `${options.baseUrl || GEMINI_BASE_URL}/models/${model}:batchEmbedContents`;
-
-  if (!apiKey) {
-    throw new EmbeddingError(
-      "GEMINI_API_KEY is missing. Document search needs it whichever provider the chat uses.",
-    );
-  }
-
-  return async function request(batch, kind) {
-    const response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        requests: batch.map((text) => ({
-          model: `models/${model}`,
-          content: { parts: [{ text }] },
-          taskType: kind === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT",
-          outputDimensionality: EMBEDDING_DIMENSIONS,
-        })),
-      }),
-    });
-
-    const payload = await readPayload(response, "Embedding request");
-    const embeddings = (payload as { embeddings?: Array<{ values?: number[] }> }).embeddings ?? [];
-
-    if (embeddings.length !== batch.length) {
-      throw new EmbeddingError(`Expected ${batch.length} embeddings, received ${embeddings.length}.`);
-    }
-
-    // Gemini only returns unit vectors at its full 3072 width; truncated ones have to be
-    // normalized before they are stored, or similarity scores are not comparable.
-    return embeddings.map((entry) => normalize(checkWidth(entry.values ?? [])));
-  };
-}
-
 async function readPayload(response: Response, label: string): Promise<unknown> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -217,25 +220,16 @@ async function readPayload(response: Response, label: string): Promise<unknown> 
       (body as { error?: { message?: string } })?.error?.message ??
       `${label} failed with status ${response.status}`;
 
-    throw new EmbeddingError(message, response.status, retryAfterMs(response, body));
+    throw new EmbeddingError(message, response.status, retryAfterMs(response));
   }
 
   return response.json();
 }
 
-type RetryInfo = { retryDelay?: string };
-
-/**
- * How long to wait, in the two forms providers express it: the standard `Retry-After`
- * header, and Google's RetryInfo detail carrying a duration like "45.6s".
- */
-function retryAfterMs(response: Response, body: unknown): number | undefined {
-  const details = (body as { error?: { details?: RetryInfo[] } })?.error?.details ?? [];
-  const retryDelay = details.find((detail) => detail?.retryDelay)?.retryDelay;
-  const fromBody = retryDelay ? Number.parseFloat(retryDelay) * 1000 : Number.NaN;
+/** How long the standard `Retry-After` header asks us to wait, in milliseconds. */
+function retryAfterMs(response: Response): number | undefined {
   const header = response.headers.get("retry-after");
-  const fromHeader = header ? Number(header) * 1000 : Number.NaN;
-  const wait = Number.isFinite(fromBody) ? fromBody : fromHeader;
+  const wait = header ? Number(header) * 1000 : Number.NaN;
 
   if (!Number.isFinite(wait) || wait <= 0) return undefined;
 
@@ -250,14 +244,6 @@ function checkWidth(embedding: number[]): number[] {
   }
 
   return embedding;
-}
-
-function normalize(vector: number[]): number[] {
-  const magnitude = Math.hypot(...vector);
-
-  if (magnitude === 0) return vector;
-
-  return vector.map((value) => value / magnitude);
 }
 
 function isRetryable(status?: number): boolean {

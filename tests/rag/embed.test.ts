@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { EMBEDDING_DIMENSIONS, GEMINI_EMBEDDING_MODEL, createEmbedder } from "../../lib/rag/embed";
+import { EMBEDDING_DIMENSIONS, OPENROUTER_EMBEDDING_MODEL, createEmbedder } from "../../lib/rag/embed";
 
 const vector = (seed: number) => Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => (i === seed ? 1 : 0));
 
@@ -35,6 +35,7 @@ function recorder(responses: Response[]) {
 const embedderWith = (responses: Response[], overrides = {}) => {
   const { calls, fetchImpl } = recorder(responses);
   const embed = createEmbedder({
+    provider: "openai",
     apiKey: "test-key",
     fetchImpl: fetchImpl as unknown as typeof fetch,
     sleep: async () => {},
@@ -44,7 +45,7 @@ const embedderWith = (responses: Response[], overrides = {}) => {
   return { calls, embed };
 };
 
-describe("createEmbedder", () => {
+describe("createEmbedder: openai", () => {
   it("does not call the provider for an empty input list", async () => {
     const { calls, embed } = embedderWith([]);
 
@@ -143,184 +144,38 @@ describe("createEmbedder", () => {
   });
 });
 
+const openRouterEmbedderWith = (responses: Response[], overrides = {}) =>
+  embedderWith(responses, { provider: "openrouter", apiKey: "openrouter-key", ...overrides });
 
-const geminiVector = (seed: number) =>
-  Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => (i === seed ? 2 : 0));
+describe("createEmbedder: openrouter", () => {
+  it("is the default provider", async () => {
+    const { calls, embed } = embedderWith([okResponse(1)], { provider: undefined });
 
-function geminiResponse(count: number, offset = 0) {
-  return new Response(
-    JSON.stringify({
-      embeddings: Array.from({ length: count }, (_, i) => ({ values: geminiVector(offset + i) })),
-    }),
-    { status: 200 },
-  );
-}
+    await embed(["a"]);
 
-const geminiEmbedderWith = (responses: Response[], overrides = {}) => {
-  const { calls, fetchImpl } = recorder(responses);
-  const embed = createEmbedder({
-    provider: "gemini",
-    apiKey: "gemini-key",
-    fetchImpl: fetchImpl as unknown as typeof fetch,
-    sleep: async () => {},
-    ...overrides,
+    expect(calls[0].url).toBe("https://openrouter.ai/api/v1/embeddings");
   });
 
-  return { calls, embed };
-};
-
-describe("createEmbedder: gemini", () => {
-  it("calls the batch endpoint for the configured model", async () => {
-    const { calls, embed } = geminiEmbedderWith([geminiResponse(1)]);
-
-    await embed(["first"]);
-
-    expect(calls[0].url).toBe(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBEDDING_MODEL}:batchEmbedContents`,
-    );
-    expect(calls[0].headers["x-goog-api-key"]).toBe("gemini-key");
-  });
-
-  it("sends one request per text, in Gemini's content shape", async () => {
-    const { calls, embed } = geminiEmbedderWith([geminiResponse(2)]);
+  it("calls OpenRouter's embeddings endpoint with the vendor-prefixed model", async () => {
+    const { calls, embed } = openRouterEmbedderWith([okResponse(2)]);
 
     await embed(["first", "second"]);
 
-    const requests = (calls[0].body as { requests?: unknown[] }).requests as Array<{
-      model: string;
-      content: { parts: Array<{ text: string }> };
-    }>;
-
-    expect(requests).toHaveLength(2);
-    expect(requests[0].model).toBe(`models/${GEMINI_EMBEDDING_MODEL}`);
-    expect(requests[0].content.parts[0].text).toBe("first");
-    expect(requests[1].content.parts[0].text).toBe("second");
+    expect(calls[0].url).toBe("https://openrouter.ai/api/v1/embeddings");
+    expect(calls[0].body.model).toBe(OPENROUTER_EMBEDDING_MODEL);
+    expect(calls[0].body.input).toEqual(["first", "second"]);
+    expect(calls[0].headers.Authorization).toBe("Bearer openrouter-key");
+    expect(calls[0].headers["X-OpenRouter-Title"]).toBe("RAG");
   });
 
-  it("asks for 1536 dimensions, matching the database column", async () => {
-    const { calls, embed } = geminiEmbedderWith([geminiResponse(1)]);
-
-    await embed(["first"]);
-
-    const requests = (calls[0].body as { requests: Array<{ outputDimensionality: number }> }).requests;
-    expect(requests[0].outputDimensionality).toBe(EMBEDDING_DIMENSIONS);
-  });
-
-  it("labels passages and questions with different task types", async () => {
-    const { calls, embed } = geminiEmbedderWith([geminiResponse(1), geminiResponse(1)]);
-
-    await embed(["a passage"], { kind: "document" });
-    await embed(["a question"], { kind: "query" });
-
-    const taskTypeOf = (index: number) =>
-      (calls[index].body as { requests: Array<{ taskType: string }> }).requests[0].taskType;
-
-    expect(taskTypeOf(0)).toBe("RETRIEVAL_DOCUMENT");
-    expect(taskTypeOf(1)).toBe("RETRIEVAL_QUERY");
-  });
-
-  it("treats text as a document when the caller does not say", async () => {
-    const { calls, embed } = geminiEmbedderWith([geminiResponse(1)]);
-
-    await embed(["unlabelled"]);
-
-    const requests = (calls[0].body as { requests: Array<{ taskType: string }> }).requests;
-    expect(requests[0].taskType).toBe("RETRIEVAL_DOCUMENT");
-  });
-
-  it("normalizes the vectors, which Gemini does not do below its full width", async () => {
-    const { embed } = geminiEmbedderWith([geminiResponse(1)]);
-
-    const [vector] = await embed(["first"]);
-    const magnitude = Math.hypot(...vector);
-
-    expect(magnitude).toBeCloseTo(1, 6);
-  });
-
-  it("returns one vector per input, in order", async () => {
-    const { embed } = geminiEmbedderWith([geminiResponse(2)]);
-
-    const vectors = await embed(["first", "second"]);
-
-    expect(vectors).toHaveLength(2);
-    expect(vectors[0][0]).toBeCloseTo(1, 6);
-    expect(vectors[1][1]).toBeCloseTo(1, 6);
-  });
-
-  it("batches large inputs", async () => {
-    const { calls, embed } = geminiEmbedderWith([geminiResponse(2, 0), geminiResponse(1, 2)], {
-      batchSize: 2,
-    });
-
-    const vectors = await embed(["a", "b", "c"]);
-
-    expect(calls).toHaveLength(2);
-    expect(vectors).toHaveLength(3);
-  });
-
-  it("retries a rate-limited batch", async () => {
-    const { calls, embed } = geminiEmbedderWith([errorResponse(429, "quota"), geminiResponse(1)]);
-
-    await embed(["a"]);
-
-    expect(calls).toHaveLength(2);
-  });
-
-  it("surfaces Gemini's own error message", async () => {
-    const body = JSON.stringify({ error: { message: "API key not valid" } });
-    const { embed } = geminiEmbedderWith([new Response(body, { status: 400 })]);
-
-    await expect(embed(["a"])).rejects.toThrow(/API key not valid/);
-  });
-
-  it("rejects vectors of the wrong width", async () => {
-    const body = JSON.stringify({ embeddings: [{ values: [0.1, 0.2] }] });
-    const { embed } = geminiEmbedderWith([new Response(body, { status: 200 })]);
-
-    await expect(embed(["a"])).rejects.toThrow(/1536/);
-  });
-
-  it("waits as long as Gemini asks before retrying, not its own guess", async () => {
-    const slept: number[] = [];
-    const quota = new Response(
-      JSON.stringify({
-        error: {
-          message: "You exceeded your current quota",
-          details: [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "45.6s" }],
-        },
-      }),
-      { status: 429 },
-    );
-    const { calls, fetchImpl } = recorder([quota, geminiResponse(1)]);
-    const embed = createEmbedder({
-      provider: "gemini",
-      apiKey: "gemini-key",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      sleep: async (ms) => {
-        slept.push(ms);
-      },
-    });
-
-    await embed(["a"]);
-
-    expect(calls).toHaveLength(2);
-    // A free-tier quota window is tens of seconds; the default backoff of ~1s would burn
-    // every attempt long before it reopened.
-    expect(slept[0]).toBeGreaterThanOrEqual(45_600);
-  });
-
-  it("honours a Retry-After header when there is no structured delay", async () => {
+  it("waits as long as the Retry-After header asks before retrying", async () => {
     const slept: number[] = [];
     const limited = new Response(JSON.stringify({ error: { message: "slow down" } }), {
       status: 429,
       headers: { "Retry-After": "30" },
     });
-    const { fetchImpl } = recorder([limited, geminiResponse(1)]);
-    const embed = createEmbedder({
-      provider: "gemini",
-      apiKey: "gemini-key",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      sleep: async (ms) => {
+    const { embed } = openRouterEmbedderWith([limited, okResponse(1)], {
+      sleep: async (ms: number) => {
         slept.push(ms);
       },
     });
@@ -336,12 +191,8 @@ describe("createEmbedder: gemini", () => {
       status: 429,
       headers: { "Retry-After": "86400" },
     });
-    const { fetchImpl } = recorder([limited, geminiResponse(1)]);
-    const embed = createEmbedder({
-      provider: "gemini",
-      apiKey: "gemini-key",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      sleep: async (ms) => {
+    const { embed } = openRouterEmbedderWith([limited, okResponse(1)], {
+      sleep: async (ms: number) => {
         slept.push(ms);
       },
     });
@@ -352,10 +203,10 @@ describe("createEmbedder: gemini", () => {
   });
 
   it("names the key it needs when there is none", () => {
-    expect(() => createEmbedder({ provider: "gemini", apiKey: "" })).toThrow(/GEMINI_API_KEY/);
+    expect(() => createEmbedder({ provider: "openrouter", apiKey: "" })).toThrow(/OPENROUTER_API_KEY/);
   });
 
   it("rejects an unknown provider by name", () => {
-    expect(() => createEmbedder({ provider: "llama-farm", apiKey: "x" })).toThrow(/llama-farm/);
+    expect(() => createEmbedder({ provider: "gemini", apiKey: "x" })).toThrow(/gemini/);
   });
 });

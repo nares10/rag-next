@@ -5,18 +5,43 @@ import { FREE_MESSAGE_LIMIT } from "@/lib/freeMessages";
 import { buildChatContext } from "@/lib/rag/chat-context";
 import { createCompleter } from "@/lib/rag/complete";
 import { lazyEmbedder } from "@/lib/rag/embed";
-import { isKnownModel } from "@/lib/models";
+import { PROVIDER_LABEL, isKnownModel } from "@/lib/models";
+import type { Provider } from "@/lib/chat-types";
 import type { Citation } from "@/lib/rag/types";
 
-// Overridable so the app can talk to an OpenAI-compatible endpoint (and so tests can
-// point both chat and embeddings at a stub).
+// Overridable so the app can talk to a compatible endpoint (a local gateway, the test
+// stub) without changing provider code.
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
 
+/**
+ * The server pays for OpenRouter and nothing else. Every other provider is
+ * bring-your-own-key, so there is no server key to fall back to and this returns
+ * undefined — which also means the query rewrite is skipped rather than billed elsewhere.
+ */
 function providerEnvKey(provider: string): string | undefined {
-  if (provider === "openai") return process.env.OPENAI_API_KEY;
-  if (provider === "anthropic" || provider === "claude") return process.env.ANTHROPIC_API_KEY;
+  return provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined;
+}
 
-  return process.env.OPENROUTER_API_KEY;
+/** Whether a request for this provider is only possible with a key the caller supplied. */
+function requiresUserKey(provider: Provider): boolean {
+  return provider !== "openrouter";
+}
+
+/**
+ * Resolve whatever the request or AI_PROVIDER said to one of the three providers the app
+ * knows. An unrecognised name falls back to the default rather than failing the message —
+ * the same leniency the route already applies to an unknown model or collection id, and
+ * the difference between a typo in AI_PROVIDER costing nothing and costing every chat.
+ */
+function normalizeProvider(input: string): Provider {
+  const name = input.trim().toLowerCase();
+
+  if (name === "openai") return "openai";
+  if (name === "anthropic" || name === "claude") return "anthropic";
+
+  return "openrouter";
 }
 
 function streamSSE(data: unknown) {
@@ -33,7 +58,7 @@ async function streamOpenRouter(messages: ProviderMessage[], userApiKey?: string
     throw new Error("OPENROUTER_API_KEY is missing. Add it to your .env.local file or provide an API key.");
   }
 
-  const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const upstream = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -59,17 +84,17 @@ async function streamOpenRouter(messages: ProviderMessage[], userApiKey?: string
 }
 
 async function streamOpenAI(messages: ProviderMessage[], userApiKey?: string, chosenModel?: string) {
-  const apiKey = userApiKey || process.env.OPENAI_API_KEY;
   const model = chosenModel || process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is missing. Add it to your .env.local file or provide an API key.");
+  // No server-key fallback: the free allowance is funded by the OpenRouter key alone.
+  if (!userApiKey) {
+    throw new Error("OpenAI requires your own API key. Add one in your profile, or switch to OpenRouter.");
   }
 
   const upstream = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${userApiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -93,17 +118,17 @@ async function streamAnthropic(
   system?: string,
   chosenModel?: string,
 ) {
-  const apiKey = userApiKey || process.env.ANTHROPIC_API_KEY;
   const model = chosenModel || process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
 
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is missing. Add it to your .env.local file or provide an API key.");
+  // No server-key fallback: the free allowance is funded by the OpenRouter key alone.
+  if (!userApiKey) {
+    throw new Error("Anthropic requires your own API key. Add one in your profile, or switch to OpenRouter.");
   }
 
-  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+  const upstream = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
     method: "POST",
     headers: {
-      "x-api-key": apiKey,
+      "x-api-key": userApiKey,
       "Content-Type": "application/json",
       "anthropic-version": "2023-06-01",
     },
@@ -148,13 +173,26 @@ export async function POST(request: NextRequest) {
     const requestedCollectionId = typeof body?.collectionId === "string" ? body.collectionId : null;
     // Opt out of document search for a single message without detaching the collection.
     const useRag = body?.useRag !== false;
-    const normalizedProvider = (providerInput || process.env.AI_PROVIDER || "openrouter").toLowerCase();
+    const normalizedProvider = normalizeProvider(providerInput || process.env.AI_PROVIDER || "openrouter");
     // Free messages are paid for with the server's keys, so only a request carrying the
     // user's own key may pick a model; everyone else gets the configured default.
     const model = apiKey && isKnownModel(normalizedProvider, body?.model) ? (body.model as string) : null;
     // Replace the last exchange instead of appending to it. The old pair is only deleted
     // once the new answer has arrived, so a failed regenerate loses nothing.
     const regenerate = body?.regenerate === true;
+
+    // Refuse before touching the free counter: without a key of their own this provider
+    // can only fail, and a guaranteed failure must not cost the caller a free message.
+    if (!apiKey && requiresUserKey(normalizedProvider)) {
+      return NextResponse.json(
+        {
+          error: `${PROVIDER_LABEL[normalizedProvider]} requires your own API key.`,
+          message: "Free messages run on OpenRouter. Add your own key to use another provider.",
+          requiresApiKey: true,
+        },
+        { status: 400 },
+      );
+    }
 
     // Check free message limit if no API key provided
     if (!apiKey) {
@@ -274,7 +312,7 @@ export async function POST(request: NextRequest) {
         }) ?? undefined,
     });
 
-    const isAnthropic = normalizedProvider === "anthropic" || normalizedProvider === "claude";
+    const isAnthropic = normalizedProvider === "anthropic";
     const messagesForAI = [
       // Anthropic carries the system prompt out of band; the OpenAI-shaped APIs take it
       // as the first message.
@@ -340,7 +378,7 @@ export async function POST(request: NextRequest) {
 
                 let textChunk = "";
 
-                if (normalizedProvider === "anthropic" || normalizedProvider === "claude") {
+                if (isAnthropic) {
                   if (payload.type === "content_block_delta") {
                     textChunk = payload.delta?.text || "";
                   }

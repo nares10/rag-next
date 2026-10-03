@@ -3,8 +3,8 @@
  * Retrieval eval runner.
  *
  *   bun run eval                     # fake embedder, compared against the recorded baseline
- *   bun run eval --embedder=gemini   # a real model on Gemini's free tier
- *   bun run eval --embedder=openai   # a real model on an OpenAI-compatible endpoint
+ *   bun run eval --embedder=openrouter   # a real model through OpenRouter
+ *   bun run eval --embedder=openai       # a real model on an OpenAI-compatible endpoint
  *   bun run eval --record            # overwrite the baseline for the chosen embedder
  *   bun run eval --limit=10          # score a different top-k
  *

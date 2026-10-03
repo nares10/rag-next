@@ -395,8 +395,9 @@ export const ModelName = {
   Conversation: 'Conversation',
   Message: 'Message',
   ApiKey: 'ApiKey',
-  EmailVerificationToken: 'EmailVerificationToken',
-  PendingRegistration: 'PendingRegistration'
+  Collection: 'Collection',
+  Document: 'Document',
+  Chunk: 'Chunk'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -412,7 +413,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "session" | "conversation" | "message" | "apiKey" | "emailVerificationToken" | "pendingRegistration"
+    modelProps: "user" | "session" | "conversation" | "message" | "apiKey" | "collection" | "document" | "chunk"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -786,151 +787,225 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
-    EmailVerificationToken: {
-      payload: Prisma.$EmailVerificationTokenPayload<ExtArgs>
-      fields: Prisma.EmailVerificationTokenFieldRefs
+    Collection: {
+      payload: Prisma.$CollectionPayload<ExtArgs>
+      fields: Prisma.CollectionFieldRefs
       operations: {
         findUnique: {
-          args: Prisma.EmailVerificationTokenFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload> | null
+          args: Prisma.CollectionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload> | null
         }
         findUniqueOrThrow: {
-          args: Prisma.EmailVerificationTokenFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>
+          args: Prisma.CollectionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>
         }
         findFirst: {
-          args: Prisma.EmailVerificationTokenFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload> | null
+          args: Prisma.CollectionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload> | null
         }
         findFirstOrThrow: {
-          args: Prisma.EmailVerificationTokenFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>
+          args: Prisma.CollectionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>
         }
         findMany: {
-          args: Prisma.EmailVerificationTokenFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>[]
+          args: Prisma.CollectionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>[]
         }
         create: {
-          args: Prisma.EmailVerificationTokenCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>
+          args: Prisma.CollectionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>
         }
         createMany: {
-          args: Prisma.EmailVerificationTokenCreateManyArgs<ExtArgs>
+          args: Prisma.CollectionCreateManyArgs<ExtArgs>
           result: BatchPayload
         }
         createManyAndReturn: {
-          args: Prisma.EmailVerificationTokenCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>[]
+          args: Prisma.CollectionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>[]
         }
         delete: {
-          args: Prisma.EmailVerificationTokenDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>
+          args: Prisma.CollectionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>
         }
         update: {
-          args: Prisma.EmailVerificationTokenUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>
+          args: Prisma.CollectionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>
         }
         deleteMany: {
-          args: Prisma.EmailVerificationTokenDeleteManyArgs<ExtArgs>
+          args: Prisma.CollectionDeleteManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateMany: {
-          args: Prisma.EmailVerificationTokenUpdateManyArgs<ExtArgs>
+          args: Prisma.CollectionUpdateManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateManyAndReturn: {
-          args: Prisma.EmailVerificationTokenUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>[]
+          args: Prisma.CollectionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>[]
         }
         upsert: {
-          args: Prisma.EmailVerificationTokenUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmailVerificationTokenPayload>
+          args: Prisma.CollectionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CollectionPayload>
         }
         aggregate: {
-          args: Prisma.EmailVerificationTokenAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateEmailVerificationToken>
+          args: Prisma.CollectionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateCollection>
         }
         groupBy: {
-          args: Prisma.EmailVerificationTokenGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EmailVerificationTokenGroupByOutputType>[]
+          args: Prisma.CollectionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.CollectionGroupByOutputType>[]
         }
         count: {
-          args: Prisma.EmailVerificationTokenCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EmailVerificationTokenCountAggregateOutputType> | number
+          args: Prisma.CollectionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.CollectionCountAggregateOutputType> | number
         }
       }
     }
-    PendingRegistration: {
-      payload: Prisma.$PendingRegistrationPayload<ExtArgs>
-      fields: Prisma.PendingRegistrationFieldRefs
+    Document: {
+      payload: Prisma.$DocumentPayload<ExtArgs>
+      fields: Prisma.DocumentFieldRefs
       operations: {
         findUnique: {
-          args: Prisma.PendingRegistrationFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload> | null
+          args: Prisma.DocumentFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload> | null
         }
         findUniqueOrThrow: {
-          args: Prisma.PendingRegistrationFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>
+          args: Prisma.DocumentFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>
         }
         findFirst: {
-          args: Prisma.PendingRegistrationFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload> | null
+          args: Prisma.DocumentFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload> | null
         }
         findFirstOrThrow: {
-          args: Prisma.PendingRegistrationFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>
+          args: Prisma.DocumentFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>
         }
         findMany: {
-          args: Prisma.PendingRegistrationFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>[]
+          args: Prisma.DocumentFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>[]
         }
         create: {
-          args: Prisma.PendingRegistrationCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>
+          args: Prisma.DocumentCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>
         }
         createMany: {
-          args: Prisma.PendingRegistrationCreateManyArgs<ExtArgs>
+          args: Prisma.DocumentCreateManyArgs<ExtArgs>
           result: BatchPayload
         }
         createManyAndReturn: {
-          args: Prisma.PendingRegistrationCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>[]
+          args: Prisma.DocumentCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>[]
         }
         delete: {
-          args: Prisma.PendingRegistrationDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>
+          args: Prisma.DocumentDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>
         }
         update: {
-          args: Prisma.PendingRegistrationUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>
+          args: Prisma.DocumentUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>
         }
         deleteMany: {
-          args: Prisma.PendingRegistrationDeleteManyArgs<ExtArgs>
+          args: Prisma.DocumentDeleteManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateMany: {
-          args: Prisma.PendingRegistrationUpdateManyArgs<ExtArgs>
+          args: Prisma.DocumentUpdateManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateManyAndReturn: {
-          args: Prisma.PendingRegistrationUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>[]
+          args: Prisma.DocumentUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>[]
         }
         upsert: {
-          args: Prisma.PendingRegistrationUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendingRegistrationPayload>
+          args: Prisma.DocumentUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DocumentPayload>
         }
         aggregate: {
-          args: Prisma.PendingRegistrationAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregatePendingRegistration>
+          args: Prisma.DocumentAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateDocument>
         }
         groupBy: {
-          args: Prisma.PendingRegistrationGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.PendingRegistrationGroupByOutputType>[]
+          args: Prisma.DocumentGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DocumentGroupByOutputType>[]
         }
         count: {
-          args: Prisma.PendingRegistrationCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.PendingRegistrationCountAggregateOutputType> | number
+          args: Prisma.DocumentCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DocumentCountAggregateOutputType> | number
+        }
+      }
+    }
+    Chunk: {
+      payload: Prisma.$ChunkPayload<ExtArgs>
+      fields: Prisma.ChunkFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ChunkFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ChunkFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>
+        }
+        findFirst: {
+          args: Prisma.ChunkFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ChunkFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>
+        }
+        findMany: {
+          args: Prisma.ChunkFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>[]
+        }
+        create: {
+          args: Prisma.ChunkCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>
+        }
+        createMany: {
+          args: Prisma.ChunkCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ChunkCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>[]
+        }
+        delete: {
+          args: Prisma.ChunkDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>
+        }
+        update: {
+          args: Prisma.ChunkUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>
+        }
+        deleteMany: {
+          args: Prisma.ChunkDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ChunkUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ChunkUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>[]
+        }
+        upsert: {
+          args: Prisma.ChunkUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChunkPayload>
+        }
+        aggregate: {
+          args: Prisma.ChunkAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateChunk>
+        }
+        groupBy: {
+          args: Prisma.ChunkGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChunkGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ChunkCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChunkCountAggregateOutputType> | number
         }
       }
     }
@@ -978,7 +1053,6 @@ export const UserScalarFieldEnum = {
   email: 'email',
   passwordHash: 'passwordHash',
   name: 'name',
-  emailVerified: 'emailVerified',
   freeMessagesUsed: 'freeMessagesUsed',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -1004,6 +1078,7 @@ export const ConversationScalarFieldEnum = {
   provider: 'provider',
   model: 'model',
   systemPrompt: 'systemPrompt',
+  collectionId: 'collectionId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -1017,6 +1092,7 @@ export const MessageScalarFieldEnum = {
   role: 'role',
   content: 'content',
   tokens: 'tokens',
+  citations: 'citations',
   createdAt: 'createdAt'
 } as const
 
@@ -1035,32 +1111,53 @@ export const ApiKeyScalarFieldEnum = {
 export type ApiKeyScalarFieldEnum = (typeof ApiKeyScalarFieldEnum)[keyof typeof ApiKeyScalarFieldEnum]
 
 
-export const EmailVerificationTokenScalarFieldEnum = {
+export const CollectionScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
-  tokenHash: 'tokenHash',
-  expiresAt: 'expiresAt',
-  createdAt: 'createdAt'
-} as const
-
-export type EmailVerificationTokenScalarFieldEnum = (typeof EmailVerificationTokenScalarFieldEnum)[keyof typeof EmailVerificationTokenScalarFieldEnum]
-
-
-export const PendingRegistrationScalarFieldEnum = {
-  id: 'id',
-  email: 'email',
   name: 'name',
-  codeHash: 'codeHash',
-  expiresAt: 'expiresAt',
-  attempts: 'attempts',
-  lastSentAt: 'lastSentAt',
-  verifiedAt: 'verifiedAt',
-  verificationTokenHash: 'verificationTokenHash',
+  description: 'description',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
-export type PendingRegistrationScalarFieldEnum = (typeof PendingRegistrationScalarFieldEnum)[keyof typeof PendingRegistrationScalarFieldEnum]
+export type CollectionScalarFieldEnum = (typeof CollectionScalarFieldEnum)[keyof typeof CollectionScalarFieldEnum]
+
+
+export const DocumentScalarFieldEnum = {
+  id: 'id',
+  collectionId: 'collectionId',
+  userId: 'userId',
+  title: 'title',
+  sourceType: 'sourceType',
+  sourceUri: 'sourceUri',
+  mimeType: 'mimeType',
+  byteSize: 'byteSize',
+  contentHash: 'contentHash',
+  status: 'status',
+  error: 'error',
+  pageCount: 'pageCount',
+  chunkCount: 'chunkCount',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type DocumentScalarFieldEnum = (typeof DocumentScalarFieldEnum)[keyof typeof DocumentScalarFieldEnum]
+
+
+export const ChunkScalarFieldEnum = {
+  id: 'id',
+  documentId: 'documentId',
+  collectionId: 'collectionId',
+  ordinal: 'ordinal',
+  content: 'content',
+  tokenCount: 'tokenCount',
+  page: 'page',
+  heading: 'heading',
+  embeddingModel: 'embeddingModel',
+  createdAt: 'createdAt'
+} as const
+
+export type ChunkScalarFieldEnum = (typeof ChunkScalarFieldEnum)[keyof typeof ChunkScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1069,6 +1166,14 @@ export const SortOrder = {
 } as const
 
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
 export const QueryMode = {
@@ -1085,6 +1190,15 @@ export const NullsOrder = {
 } as const
 
 export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
+export const JsonNullValueFilter = {
+  DbNull: DbNull,
+  JsonNull: JsonNull,
+  AnyNull: AnyNull
+} as const
+
+export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
 
 
 
@@ -1104,13 +1218,6 @@ export type StringFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 
  * Reference to a field of type 'String[]'
  */
 export type ListStringFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'String[]'>
-    
-
-
-/**
- * Reference to a field of type 'Boolean'
- */
-export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
     
 
 
@@ -1139,6 +1246,20 @@ export type DateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel
  * Reference to a field of type 'DateTime[]'
  */
 export type ListDateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime[]'>
+    
+
+
+/**
+ * Reference to a field of type 'Json'
+ */
+export type JsonFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Json'>
+    
+
+
+/**
+ * Reference to a field of type 'QueryMode'
+ */
+export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'QueryMode'>
     
 
 
@@ -1247,8 +1368,9 @@ export type GlobalOmitConfig = {
   conversation?: Prisma.ConversationOmit
   message?: Prisma.MessageOmit
   apiKey?: Prisma.ApiKeyOmit
-  emailVerificationToken?: Prisma.EmailVerificationTokenOmit
-  pendingRegistration?: Prisma.PendingRegistrationOmit
+  collection?: Prisma.CollectionOmit
+  document?: Prisma.DocumentOmit
+  chunk?: Prisma.ChunkOmit
 }
 
 /* Types for Logging */

@@ -74,12 +74,24 @@ export type Message = Prisma.MessageModel
  */
 export type ApiKey = Prisma.ApiKeyModel
 /**
- * Model EmailVerificationToken
+ * Model Collection
  * 
  */
-export type EmailVerificationToken = Prisma.EmailVerificationTokenModel
+export type Collection = Prisma.CollectionModel
 /**
- * Model PendingRegistration
+ * Model Document
  * 
  */
-export type PendingRegistration = Prisma.PendingRegistrationModel
+export type Document = Prisma.DocumentModel
+/**
+ * Model Chunk
+ * Two database objects on this model cannot be expressed in PSL and live only in
+ * `migrations/20261002160000_add_rag/migration.sql`:
+ * * `contentTsv` is a GENERATED column — declared below so it is not dropped, but
+ * `prisma migrate dev` still emits `ALTER COLUMN "contentTsv" DROP DEFAULT`, which
+ * Postgres rejects on a generated column.
+ * * `Chunk_embedding_hnsw_idx` (HNSW over `embedding`) has no PSL index type, so a
+ * generated migration will try to DROP it.
+ * Delete both statements from any migration Prisma generates for this model.
+ */
+export type Chunk = Prisma.ChunkModel

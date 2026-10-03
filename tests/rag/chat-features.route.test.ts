@@ -33,7 +33,7 @@ const chat = (headers: HeadersInit, body: Record<string, unknown>) =>
   fetch(`${TEST_BASE_URL}/api/chat`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ provider: "openai", ...body }),
+    body: JSON.stringify({ provider: "openrouter", ...body }),
   });
 
 describe("chat UI features", () => {
@@ -80,20 +80,20 @@ describe("chat UI features", () => {
   it("honours a known model only when the request carries the user's key", async () => {
     const { headers } = await createAuthedUser("chat-model@example.com");
 
-    const free = await readFrames(await chat(headers, { message: "Hi", model: "gpt-4o" }));
+    const free = await readFrames(await chat(headers, { message: "Hi", model: "openai/gpt-4o-mini" }));
     const freeConversation = await prisma.conversation.findUniqueOrThrow({
       where: { id: free.find((frame) => frame.done)?.conversationId as string },
     });
     expect(freeConversation.model).toBeNull();
 
-    const keyed = await readFrames(await chat(headers, { message: "Hi", model: "gpt-4o", apiKey: "stub-key" }));
+    const keyed = await readFrames(await chat(headers, { message: "Hi", model: "openai/gpt-4o-mini", apiKey: "stub-key" }));
     const keyedConversation = await prisma.conversation.findUniqueOrThrow({
       where: { id: keyed.find((frame) => frame.done)?.conversationId as string },
     });
-    expect(keyedConversation.model).toBe("gpt-4o");
+    expect(keyedConversation.model).toBe("openai/gpt-4o-mini");
 
     const requests = await stubRequests("/v1/chat/completions");
-    expect(requests.at(-1)?.body.model).toBe("gpt-4o");
+    expect(requests.at(-1)?.body.model).toBe("openai/gpt-4o-mini");
   });
 
   it("ignores a model that is not in the catalogue", async () => {

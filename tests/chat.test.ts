@@ -1,10 +1,15 @@
 /**
- * These tests only exercise the deterministic, networkless branches of POST /api/chat.
- * The real successful-completion path (provider dispatch -> streamed text -> final
- * `done:true` chunk) requires live AI provider credentials that aren't available in this
- * environment, so it is intentionally not tested here. These tests assume the server under
- * test was started with no AI_PROVIDER/OPENAI_API_KEY/ANTHROPIC_API_KEY/OPENROUTER_API_KEY
- * env vars set (matching this repo's .env/.env.test, which only set DATABASE_URL).
+ * Auth, validation and quota branches of POST /api/chat. The streamed success path is
+ * covered in tests/rag/chat-features.route.test.ts, which drives the OpenRouter default
+ * against the stub provider.
+ *
+ * OpenAI and Anthropic are bring-your-own-key, so they reject before any network call and
+ * are the right providers to assert a missing key with — no credentials needed, whatever
+ * the server under test has configured.
+ *
+ * The conversation-bookkeeping tests at the bottom send no provider, so they take the
+ * OpenRouter default and do reach the provider. Run them against the stub (see README ›
+ * Testing); against a server holding a real key they bill a completion each.
  */
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { prisma } from "../lib/prisma";
@@ -91,31 +96,30 @@ describe("POST /api/chat", () => {
     expect(dbUser?.freeMessagesUsed).toBe(FREE_MESSAGE_LIMIT);
   });
 
-  it("500s when under the limit but no provider API key is configured, leaving no orphaned message", async () => {
-    const { user, headers } = await createAuthedUser("chat-no-key@example.com");
+  it.each(["openai", "anthropic"])(
+    "400s for %s without the caller's own key, and charges no free message",
+    async (provider) => {
+      const { user, headers } = await createAuthedUser(`chat-byok-${provider}@example.com`);
 
-    const response = await fetch(`${TEST_BASE_URL}/api/chat`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ message: "Hello there" }),
-    });
-    const data = await response.json();
+      const response = await fetch(`${TEST_BASE_URL}/api/chat`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ message: "Hello there", provider }),
+      });
+      const data = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(response.headers.get("content-type")).not.toContain("text/event-stream");
-    expect(String(data.error)).toMatch(/API_KEY/);
+      expect(response.status).toBe(400);
+      expect(response.headers.get("content-type")).not.toContain("text/event-stream");
+      expect(data.requiresApiKey).toBe(true);
+      expect(String(data.error)).toMatch(/your own API key/i);
 
-    const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-    expect(dbUser?.freeMessagesUsed).toBe(1);
-
-    const conversations = await prisma.conversation.findMany({ where: { userId: user.id } });
-    expect(conversations).toHaveLength(1);
-
-    // The route persists the user message and the reply together, once a reply has
-    // actually arrived, so a failed provider call leaves the conversation empty.
-    const messages = await prisma.message.findMany({ where: { conversationId: conversations[0].id } });
-    expect(messages).toHaveLength(0);
-  });
+      // The free allowance is funded by the server's OpenRouter key alone, so a request
+      // that could only ever fail must not cost one — nor leave a conversation behind.
+      const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+      expect(dbUser?.freeMessagesUsed).toBe(0);
+      expect(await prisma.conversation.findMany({ where: { userId: user.id } })).toHaveLength(0);
+    },
+  );
 
   it("reuses an existing conversation owned by the caller instead of creating a new one", async () => {
     const { user, headers } = await createAuthedUser("chat-reuse@example.com");
