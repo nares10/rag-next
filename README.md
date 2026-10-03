@@ -9,6 +9,22 @@ your own infrastructure and your own API keys.
 
 ---
 
+## Screenshots
+
+![The home screen: suggested prompts, chat history, and a model picker in the composer](docs/screenshots/home.png)
+
+<p align="center"><em>The home screen — suggested prompts, chat history, and the model picker in the composer.</em></p>
+
+![The Documents drawer, listing collections with their file and ready counts, each with an "Attach to chat" button](docs/screenshots/documents.png)
+
+<p align="center"><em>The Documents drawer — create a collection, add files, and attach it to the current chat.</em></p>
+
+![The Profile page, showing free-message usage, conversation and message counts, and the API key form](docs/screenshots/profile.png)
+
+<p align="center"><em>Profile — the free-message allowance, usage counts, and bring-your-own provider keys.</em></p>
+
+---
+
 ## What makes it a RAG app
 
 Most chat UIs paste your file into the prompt and hope. This one indexes it:
